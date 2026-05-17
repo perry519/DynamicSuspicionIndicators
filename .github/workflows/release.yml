@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package mod
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Validate update metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('mod.txt', 'utf8')).version")"
+          META_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('update_meta.json', 'utf8'))[0].version")"
+
+          if [[ "$VERSION" != "$META_VERSION" ]]; then
+            echo "::error::mod.txt version ($VERSION) does not match update_meta.json version ($META_VERSION)"
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "v${VERSION}" ]]; then
+            echo "::error::tag (${GITHUB_REF_NAME}) does not match mod version (v${VERSION})"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build SuperBLT zip
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf package DynamicSuspicionIndicators.zip
+          mkdir -p package/DynamicSuspicionIndicators
+          cp -R Core.lua assets menu menu.lua mod.txt modules update_meta.json package/DynamicSuspicionIndicators/
+
+          cd package
+          zip -r ../DynamicSuspicionIndicators.zip DynamicSuspicionIndicators
+
+      - name: Upload release asset
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" DynamicSuspicionIndicators.zip --clobber
+          else
+            gh release create "$TAG" DynamicSuspicionIndicators.zip \
+              --title "$TAG" \
+              --notes "Dynamic Suspicion Indicators ${version}"
+          fi

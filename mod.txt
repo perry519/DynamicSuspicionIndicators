@@ -1,0 +1,22 @@
+{
+	"name" : "Dynamic Suspicion Indicators",
+	"description" : "Dynamic suspicion indicators for stealth.",
+	"author" : "Perry",
+	"version" : "1.0.0",
+	"blt_version" : 2,
+	"priority" : 0,
+	"updates" : [
+		{
+			"identifier" : "perry519.dynamic_suspicion_indicators",
+			"host" : {
+				"meta" : "https://raw.githubusercontent.com/perry519/DynamicSuspicionIndicators/main/update_meta.json"
+			}
+		}
+	],
+	"hooks" : [
+		{ "hook_id" : "lib/managers/menumanager", "script_path" : "menu.lua" }
+	],
+	"persist_scripts" : [
+		{ "global" : "DynamicSuspicionIndicators_Inited", "script_path" : "Core.lua" }
+	]
+}
