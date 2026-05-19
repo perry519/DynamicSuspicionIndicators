@@ -2,7 +2,7 @@
 	"name" : "Dynamic Suspicion Indicators",
 	"description" : "Dynamic suspicion indicators for stealth.",
 	"author" : "Perry",
-	"version" : "1.0.0",
+	"version" : "1.0.1",
 	"blt_version" : 2,
 	"priority" : 0,
 	"updates" : [
