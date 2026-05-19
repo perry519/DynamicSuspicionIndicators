@@ -10,6 +10,7 @@ local A     = DI.Assets
 local Glyph = DI.HudGlyph
 local View  = DI.HudView
 local Render = WO.Render
+local VR = WO.VR
 
 WO.icon_size         = 22
 WO.arrow_size        = 15
@@ -29,6 +30,14 @@ end
 
 local function _destroy_overlay(ov)
 	if not ov then return end
+	if ov.vr then
+		if VR and VR.destroy then
+			VR.destroy(ov.vr)
+		else
+			_destroy_overlay(ov.vr)
+		end
+		ov.vr = nil
+	end
 	local all = { ov.hollow, ov.clip, ov.filled, ov.vanilla_hollow, ov.vanilla_clip, ov.vanilla_eye, ov.pct_text, ov.pct_shadow }
 	for _, el in ipairs(all) do
 		if alive(el) then pcall(function() el:set_visible(false); el:set_alpha(0) end) end
@@ -209,7 +218,7 @@ function WO:attach(id, wp_data)
 		w = 80, h = 22, align = "center", vertical = "center",
 	})
 
-	self._overlays[id] = {
+	local ov = {
 		panel = panel, hollow = hollow, clip = clip, filled = filled,
 		pct_text = pct_text, pct_shadow = pct_shadow,
 		vanilla_bitmap = wp_data.bitmap, vanilla_arrow = wp_data.arrow,
@@ -221,6 +230,11 @@ function WO:attach(id, wp_data)
 		size = size, base_x = base_x, base_y = base_y,
 		kind = "civilian", kind_set = false, observer_unit = nil, _van_mode = nil,
 	}
+	if VR and VR.create_overlay and alive(wp_data.bitmap_world) then
+		ov.vr = VR.create_overlay(wp_data.bitmap_world, size, fsize, base_arrow_color)
+	end
+
+	self._overlays[id] = ov
 end
 
 function WO:update(deps)
@@ -298,7 +312,14 @@ function WO:update(deps)
 					icons_on = A.uses_icons_mode(cfg.icon_style),
 				}
 			end
-			Render.apply(ov, state, cfg, kind_textures)
+			if VR and VR.should_hide_screen_overlay and VR.should_hide_screen_overlay(ov) then
+				VR.hide_screen_overlay(ov)
+			else
+				Render.apply(ov, state, cfg, kind_textures)
+			end
+			if VR and VR.update then
+				VR.update(ov, state, cfg, kind_textures, _sync_overlay_geometry, Render.apply, _set_kind)
+			end
 		else
 			_destroy_overlay(ov)
 			self._overlays[id] = nil

@@ -6,6 +6,7 @@ DI.WaypointOverlay = DI.WaypointOverlay or {}
 local WO = DI.WaypointOverlay
 WO.Render = WO.Render or {}
 local R = WO.Render
+local VR = WO.VR
 
 local alive = DI.Game.alive
 local A = DI.Assets
@@ -44,11 +45,19 @@ local function _resize_vanilla_overlay(ov, sz, bx, by)
 end
 
 local function _render_fill(ov, p, color)
-	_render_clipped_fill(ov.clip, ov.filled, ov.size, ov.base_y, p, color)
+	if ov.is_vr and VR and VR.render_cropped_fill then
+		VR.render_cropped_fill(ov.clip, ov.filled, ov.size, ov.base_y, p, color)
+	else
+		_render_clipped_fill(ov.clip, ov.filled, ov.size, ov.base_y, p, color)
+	end
 end
 
 local function _render_vanilla_fill(ov, fp, p_icon, fill_color)
-	_render_clipped_fill(ov.vanilla_clip, ov.vanilla_eye, ov.vanilla_size, ov.vanilla_base_y, fp, fill_color)
+	if ov.is_vr and VR and VR.render_cropped_fill then
+		VR.render_cropped_fill(ov.vanilla_clip, ov.vanilla_eye, ov.vanilla_size, ov.vanilla_base_y, fp, fill_color)
+	else
+		_render_clipped_fill(ov.vanilla_clip, ov.vanilla_eye, ov.vanilla_size, ov.vanilla_base_y, fp, fill_color)
+	end
 	if alive(ov.vanilla_hollow) then
 		ov.vanilla_hollow:set_color((p_icon == nil) and DI.Color.UNKNOWN or DI.Color.CURIOUS)
 		ov.vanilla_hollow:set_alpha(0.85)
