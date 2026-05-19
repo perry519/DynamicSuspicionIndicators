@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
 
 permissions:
   contents: write
@@ -16,19 +16,15 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-      - name: Validate update metadata
+      - name: Validate release version
         shell: bash
         run: |
           set -euo pipefail
 
-          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('mod.txt', 'utf8')).version")"
-          META_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('update_meta.json', 'utf8'))[0].version")"
-
-          if [[ "$VERSION" != "$META_VERSION" ]]; then
-            echo "::error::mod.txt version ($VERSION) does not match update_meta.json version ($META_VERSION)"
-            exit 1
-          fi
+          VERSION="$(jq -r '.version' mod.txt)"
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "v${VERSION}" ]]; then
             echo "::error::tag (${GITHUB_REF_NAME}) does not match mod version (v${VERSION})"
@@ -37,6 +33,28 @@ jobs:
 
           echo "version=$VERSION" >> "$GITHUB_ENV"
 
+      - name: Generate update metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ident="$(jq -r '.updates[0].identifier' mod.txt)"
+          version="$(jq -r '.version' mod.txt)"
+          repo="$GITHUB_REPOSITORY"
+
+          mkdir -p generated
+          jq -n \
+            --arg ident "$ident" \
+            --arg version "$version" \
+            --arg download_url "https://github.com/$repo/releases/download/v$version/DynamicSuspicionIndicators.zip" \
+            --arg patchnotes_url "https://github.com/$repo/releases/tag/v$version" \
+            '[{
+              ident: $ident,
+              version: $version,
+              download_url: $download_url,
+              patchnotes_url: $patchnotes_url
+            }]' > generated/update_meta.json
+
       - name: Build SuperBLT zip
         shell: bash
         run: |
@@ -44,10 +62,49 @@ jobs:
 
           rm -rf package DynamicSuspicionIndicators.zip
           mkdir -p package/DynamicSuspicionIndicators
-          cp -R Core.lua assets menu menu.lua mod.txt modules update_meta.json package/DynamicSuspicionIndicators/
+          cp -R Core.lua assets menu menu.lua mod.txt modules package/DynamicSuspicionIndicators/
+          cp generated/update_meta.json package/DynamicSuspicionIndicators/update_meta.json
 
           cd package
           zip -r ../DynamicSuspicionIndicators.zip DynamicSuspicionIndicators
+
+      - name: Get previous tag
+        id: previous-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force
+          previous_tag="$(git --no-pager tag --sort=creatordate --merged "${GITHUB_REF_NAME}" | grep -v "^${GITHUB_REF_NAME}$" | tail -1 || true)"
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        id: changelog
+        if: ${{ steps.previous-tag.outputs.previous_tag != '' }}
+        uses: requarks/changelog-action@v1
+        with:
+          token: ${{ github.token }}
+          fromTag: ${{ github.ref_name }}
+          toTag: ${{ steps.previous-tag.outputs.previous_tag }}
+          writeToFile: false
+          restrictToTypes: feat,fix,perf
+          useGitmojis: false
+          includeInvalidCommits: false
+
+      - name: Write release notes
+        env:
+          CHANGELOG: ${{ steps.changelog.outputs.changes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          printf 'Dynamic Suspicion Indicators %s\n' "$version" > release-notes.md
+
+          if [[ -n "$CHANGELOG" ]]; then
+            printf '\n%s\n' "$CHANGELOG" >> release-notes.md
+          else
+            printf '\nMaintenance release.\n' >> release-notes.md
+          fi
 
       - name: Upload release asset
         env:
@@ -58,9 +115,30 @@ jobs:
           set -euo pipefail
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" DynamicSuspicionIndicators.zip --clobber
+            gh release edit "$TAG" --notes-file release-notes.md
+            gh release upload "$TAG" DynamicSuspicionIndicators.zip generated/update_meta.json --clobber
           else
-            gh release create "$TAG" DynamicSuspicionIndicators.zip \
+            gh release create "$TAG" DynamicSuspicionIndicators.zip generated/update_meta.json \
               --title "$TAG" \
-              --notes "Dynamic Suspicion Indicators ${version}"
+              --notes-file release-notes.md
           fi
+
+      - name: Publish update metadata
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp generated/update_meta.json update_meta.json
+
+          if git diff --quiet -- update_meta.json; then
+            echo "update_meta.json already matches $TAG"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add update_meta.json
+          git commit -m "chore: update release metadata for $TAG"
+          git push origin HEAD:main
