@@ -142,3 +142,34 @@ jobs:
           git add update_meta.json
           git commit -m "chore: update release metadata for $TAG"
           git push origin HEAD:main
+
+  nexus:
+    name: Upload to Nexus Mods
+    needs: package
+    permissions:
+      contents: read
+    environment: nexusmods
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download GitHub release
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh release download "$TAG" --pattern DynamicSuspicionIndicators.zip
+          echo "version=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Upload to Nexus Mods
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ secrets.NEXUSMODS_FILE_ID }}
+          filename: DynamicSuspicionIndicators.zip
+          version: ${{ env.version }}
+          display_name: Dynamic Suspicion Indicators
+          update_mod_version: true

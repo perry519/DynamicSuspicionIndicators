@@ -1,0 +1,36 @@
+name: Upload latest release to Nexus Mods
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nexus:
+    name: Upload to Nexus Mods
+    environment: nexusmods
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download latest GitHub release
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="$(gh release view --json tagName --jq .tagName)"
+          gh release download "$tag" --pattern DynamicSuspicionIndicators.zip
+          echo "version=${tag#v}" >> "$GITHUB_ENV"
+
+      - name: Upload to Nexus Mods
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ secrets.NEXUSMODS_FILE_ID }}
+          filename: DynamicSuspicionIndicators.zip
+          version: ${{ env.version }}
+          display_name: Dynamic Suspicion Indicators
+          update_mod_version: true
