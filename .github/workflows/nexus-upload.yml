@@ -32,5 +32,5 @@ jobs:
           file_id: ${{ secrets.NEXUSMODS_FILE_ID }}
           filename: DynamicSuspicionIndicators.zip
           version: ${{ env.version }}
-          display_name: Dynamic Suspicion Indicators
+          primary_mod_manager_download: true
           update_mod_version: true
