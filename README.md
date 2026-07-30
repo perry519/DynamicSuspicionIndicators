@@ -1,5 +1,15 @@
 # Dynamic Suspicion Indicators
 
+![Dynamic Suspicion Indicators](docs/previews/thumb.png)
+
+<details>
+<summary>More images</summary>
+
+![Dynamic Suspicion Indicators header](docs/previews/header.png)
+![Dynamic Suspicion Indicators preview](docs/previews/1.png)
+
+</details>
+
 PAYDAY 2 SuperBLT mod for stealth detection indicators.
 
 ## Features
