@@ -1,15 +1,17 @@
 -- Sync wire transport
 
-if not DynamicSuspicionIndicatorsManager then return end
+if not DynamicSuspicionIndicatorsManager then
+	return
+end
 local DI = DynamicSuspicionIndicatorsManager
 DI.Sync = DI.Sync or {}
 local Transport = {}
 DI.Sync.Transport = Transport
 
-Transport.MSG_ID            = "DSI_susp_v1"
+Transport.MSG_ID = "DSI_susp_v1"
 Transport.MAX_PAYLOAD_BYTES = 180
 
-local _send_seq    = 0
+local _send_seq = 0
 local _recv_chunks = {}
 
 local function _log_once(level, key, msg)
@@ -24,8 +26,11 @@ function Transport.send(send_fn, payload)
 	end
 	_send_seq = (_send_seq % 999999) + 1
 	local total = math.ceil(#payload / Transport.MAX_PAYLOAD_BYTES)
-	_log_once("debug", "chunked-send",
-		string.format("sync payload chunked: %d bytes across %d chunks", #payload, total))
+	_log_once(
+		"debug",
+		"chunked-send",
+		string.format("sync payload chunked: %d bytes across %d chunks", #payload, total)
+	)
 	for i = 1, total do
 		local from = ((i - 1) * Transport.MAX_PAYLOAD_BYTES) + 1
 		local chunk = payload:sub(from, from + Transport.MAX_PAYLOAD_BYTES - 1)
@@ -39,12 +44,17 @@ function Transport.decode(sender, data)
 		return nil
 	end
 	local seq, idx, total, chunk = data:match("^C:(%d+):(%d+):(%d+):(.*)$")
-	if not seq then return data end
+	if not seq then
+		return data
+	end
 	idx = tonumber(idx)
 	total = tonumber(total)
 	if not (idx and total and total > 0 and idx >= 1 and idx <= total) then
-		_log_once("warn", "invalid-chunk",
-			string.format("ignored invalid sync chunk metadata from %s", tostring(sender)))
+		_log_once(
+			"warn",
+			"invalid-chunk",
+			string.format("ignored invalid sync chunk metadata from %s", tostring(sender))
+		)
 		return nil
 	end
 	local key = tostring(sender or "unknown") .. ":" .. seq
@@ -55,15 +65,20 @@ function Transport.decode(sender, data)
 	end
 	if acc.total ~= total then
 		_recv_chunks[key] = nil
-		_log_once("warn", "chunk-total-mismatch",
-			string.format("discarded sync chunk sequence with mismatched total from %s", tostring(sender)))
+		_log_once(
+			"warn",
+			"chunk-total-mismatch",
+			string.format("discarded sync chunk sequence with mismatched total from %s", tostring(sender))
+		)
 		return nil
 	end
 	if acc.parts[idx] == nil then
 		acc.count = acc.count + 1
 	end
 	acc.parts[idx] = chunk or ""
-	if acc.count < total then return nil end
+	if acc.count < total then
+		return nil
+	end
 	local parts = {}
 	for i = 1, total do
 		parts[#parts + 1] = acc.parts[i] or ""

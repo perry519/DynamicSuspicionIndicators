@@ -1,35 +1,45 @@
 -- Waypoint overlay: state management and vanilla hook integration.
 
-if not DynamicSuspicionIndicatorsManager then return end
-local DI    = DynamicSuspicionIndicatorsManager
+if not DynamicSuspicionIndicatorsManager then
+	return
+end
+local DI = DynamicSuspicionIndicatorsManager
 DI.WaypointOverlay = DI.WaypointOverlay or {}
-local WO    = DI.WaypointOverlay
+local WO = DI.WaypointOverlay
 local alive = DI.Game.alive
-local U     = DI.Units
-local A     = DI.Assets
+local U = DI.Units
+local A = DI.Assets
 local Glyph = DI.HudGlyph
-local View  = DI.HudView
+local View = DI.HudView
 local Render = WO.Render
 local VR = WO.VR
 
-WO.icon_size         = 22
-WO.arrow_size        = 15
+WO.icon_size = 22
+WO.arrow_size = 15
 WO.percent_font_size = 14
-WO._overlays         = WO._overlays    or {}
-WO._calling_obs      = WO._calling_obs or {}
+WO._overlays = WO._overlays or {}
+WO._calling_obs = WO._calling_obs or {}
 
 local function _waypoint_panel(wp_data)
-	if not wp_data then return nil end
+	if not wp_data then
+		return nil
+	end
 	local panel = wp_data.waypoint_panel or wp_data.panel
 	if not (panel and alive(panel)) and alive(wp_data.bitmap) then
-		local ok, p = pcall(function() return wp_data.bitmap:parent() end)
-		if ok and alive(p) then panel = p end
+		local ok, p = pcall(function()
+			return wp_data.bitmap:parent()
+		end)
+		if ok and alive(p) then
+			panel = p
+		end
 	end
 	return panel
 end
 
 local function _destroy_overlay(ov)
-	if not ov then return end
+	if not ov then
+		return
+	end
 	if ov.vr then
 		if VR and VR.destroy then
 			VR.destroy(ov.vr)
@@ -38,14 +48,34 @@ local function _destroy_overlay(ov)
 		end
 		ov.vr = nil
 	end
-	local all = { ov.hollow, ov.clip, ov.filled, ov.vanilla_hollow, ov.vanilla_clip, ov.vanilla_eye, ov.pct_text, ov.pct_shadow }
+	local all = {
+		ov.hollow,
+		ov.clip,
+		ov.filled,
+		ov.vanilla_hollow,
+		ov.vanilla_clip,
+		ov.vanilla_eye,
+		ov.pct_text,
+		ov.pct_shadow,
+	}
 	for _, el in ipairs(all) do
-		if alive(el) then pcall(function() el:set_visible(false); el:set_alpha(0) end) end
+		if alive(el) then
+			pcall(function()
+				el:set_visible(false)
+				el:set_alpha(0)
+			end)
+		end
 	end
 	local panel = ov.panel
-	if not alive(panel) then return end
+	if not alive(panel) then
+		return
+	end
 	for _, el in ipairs(all) do
-		if alive(el) then pcall(function() panel:remove(el) end) end
+		if alive(el) then
+			pcall(function()
+				panel:remove(el)
+			end)
+		end
 	end
 end
 WO._destroy_overlay = _destroy_overlay
@@ -60,7 +90,9 @@ local function _set_xy(el, x, y)
 end
 
 local function _sync_overlay_geometry(ov)
-	if not alive(ov.vanilla_bitmap) then return false end
+	if not alive(ov.vanilla_bitmap) then
+		return false
+	end
 
 	if ov.resize_vanilla_arrow and alive(ov.vanilla_arrow) then
 		local ax, ay = ov.vanilla_arrow:center()
@@ -98,7 +130,9 @@ local function _sync_overlay_geometry(ov)
 end
 
 local function _tick_lifecycle(ov, sd, npc_kind, kind_textures)
-	if not (alive(ov.hollow) and alive(ov.clip) and alive(ov.filled)) then return false end
+	if not (alive(ov.hollow) and alive(ov.clip) and alive(ov.filled)) then
+		return false
+	end
 	local unit = ov.observer_unit
 	if not alive(unit) and sd and alive(sd.u_observer) then
 		unit = sd.u_observer
@@ -121,16 +155,22 @@ end
 ------------------------------------------------------------
 
 function WO:has_overlay_for_unit(unit)
-	if not (self._overlays and alive(unit)) then return false end
+	if not (self._overlays and alive(unit)) then
+		return false
+	end
 	local ukey = unit:key()
 	for _, ov in pairs(self._overlays) do
-		if alive(ov.observer_unit) and ov.observer_unit:key() == ukey then return true end
+		if alive(ov.observer_unit) and ov.observer_unit:key() == ukey then
+			return true
+		end
 	end
 	return false
 end
 
 function WO:install_hooks()
-	if not DI.Game.has_hud_manager() then return end
+	if not DI.Game.has_hud_manager() then
+		return
+	end
 	DI.Game.patch_hud_manager("add_waypoint", "_dp_aw_orig", function(self_hud, orig, id, data)
 		local r = orig(self_hud, id, data)
 		local ok, err = pcall(function()
@@ -156,17 +196,27 @@ function WO:install_hooks()
 end
 
 function WO:attach(id, wp_data)
-	if not (id and wp_data) then return end
-	if not (type(id) == "string" and id:lower():find("^susp1")) then return end
-	if not alive(wp_data.bitmap) then return end
-	if self._overlays[id] then return end
+	if not (id and wp_data) then
+		return
+	end
+	if not (type(id) == "string" and id:lower():find("^susp1")) then
+		return
+	end
+	if not alive(wp_data.bitmap) then
+		return
+	end
+	if self._overlays[id] then
+		return
+	end
 
 	local panel = _waypoint_panel(wp_data)
-	if not (panel and alive(panel)) then return end
+	if not (panel and alive(panel)) then
+		return
+	end
 
 	local resize_vanilla_arrow = not alive(wp_data.panel)
 	local base_arrow_color = alive(wp_data.arrow) and wp_data.arrow:color() or DI.Color.CURIOUS
-	local size  = self.icon_size
+	local size = self.icon_size
 	local fsize = self.percent_font_size
 	local cx, cy = wp_data.bitmap:center()
 	local base_x = cx - size * 0.5
@@ -180,55 +230,121 @@ function WO:attach(id, wp_data)
 	local v_base_y = cy - v_h * 0.5
 
 	local hollow = panel:bitmap({
-		name = "dp_hollow", texture = A.kind_textures.civilian.curious,
-		w = size, h = size, x = base_x, y = base_y,
-		layer = 1, blend_mode = "normal", color = Color.white:with_alpha(0.7),
+		name = "dp_hollow",
+		texture = A.kind_textures.civilian.curious,
+		w = size,
+		h = size,
+		x = base_x,
+		y = base_y,
+		layer = 1,
+		blend_mode = "normal",
+		color = Color.white:with_alpha(0.7),
 	})
 	local clip = panel:panel({
-		name = "dp_clip", w = size, h = size, x = base_x, y = base_y, layer = 2,
+		name = "dp_clip",
+		w = size,
+		h = size,
+		x = base_x,
+		y = base_y,
+		layer = 2,
 	})
 	local filled = clip:bitmap({
-		name = "dp_filled", texture = A.kind_textures.civilian.curious,
-		w = size, h = size, x = 0, y = 0,
-		layer = 1, blend_mode = "normal", color = Color.white,
+		name = "dp_filled",
+		texture = A.kind_textures.civilian.curious,
+		w = size,
+		h = size,
+		x = 0,
+		y = 0,
+		layer = 1,
+		blend_mode = "normal",
+		color = Color.white,
 	})
 	local susp_tex = A.vanilla_curious
 	local vanilla_hollow = panel:bitmap({
-		name = "dp_v_hollow", texture = susp_tex,
-		w = v_w, h = v_h, x = v_base_x, y = v_base_y,
-		layer = 1, blend_mode = "normal", color = Color.white:with_alpha(0.3), visible = false,
+		name = "dp_v_hollow",
+		texture = susp_tex,
+		w = v_w,
+		h = v_h,
+		x = v_base_x,
+		y = v_base_y,
+		layer = 1,
+		blend_mode = "normal",
+		color = Color.white:with_alpha(0.3),
+		visible = false,
 	})
 	local vanilla_clip = panel:panel({
-		name = "dp_v_clip", w = v_w, h = v_h, x = v_base_x, y = v_base_y,
-		layer = 2, visible = false,
+		name = "dp_v_clip",
+		w = v_w,
+		h = v_h,
+		x = v_base_x,
+		y = v_base_y,
+		layer = 2,
+		visible = false,
 	})
 	local vanilla_eye = vanilla_clip:bitmap({
-		name = "dp_v_eye", texture = susp_tex,
-		w = v_w, h = v_h, x = 0, y = 0,
-		layer = 1, blend_mode = "normal", color = Color.white,
+		name = "dp_v_eye",
+		texture = susp_tex,
+		w = v_w,
+		h = v_h,
+		x = 0,
+		y = 0,
+		layer = 1,
+		blend_mode = "normal",
+		color = Color.white,
 	})
 	local pct_shadow = panel:text({
-		name = "dp_pct_shadow", text = "", font = A.font_hud, font_size = fsize,
-		color = Color.black:with_alpha(0.8), layer = 4, visible = false,
-		w = 80, h = 22, align = "center", vertical = "center",
+		name = "dp_pct_shadow",
+		text = "",
+		font = A.font_hud,
+		font_size = fsize,
+		color = Color.black:with_alpha(0.8),
+		layer = 4,
+		visible = false,
+		w = 80,
+		h = 22,
+		align = "center",
+		vertical = "center",
 	})
 	local pct_text = panel:text({
-		name = "dp_pct", text = "", font = A.font_hud, font_size = fsize,
-		color = Color.white, layer = 5, visible = false,
-		w = 80, h = 22, align = "center", vertical = "center",
+		name = "dp_pct",
+		text = "",
+		font = A.font_hud,
+		font_size = fsize,
+		color = Color.white,
+		layer = 5,
+		visible = false,
+		w = 80,
+		h = 22,
+		align = "center",
+		vertical = "center",
 	})
 
 	local ov = {
-		panel = panel, hollow = hollow, clip = clip, filled = filled,
-		pct_text = pct_text, pct_shadow = pct_shadow,
-		vanilla_bitmap = wp_data.bitmap, vanilla_arrow = wp_data.arrow,
-		vanilla_hollow = vanilla_hollow, vanilla_clip = vanilla_clip, vanilla_eye = vanilla_eye,
-		vanilla_base_y = v_base_y, vanilla_size = v_h,
-		vanilla_size_orig = v_h, vanilla_base_x_orig = v_base_x, vanilla_base_y_orig = v_base_y,
+		panel = panel,
+		hollow = hollow,
+		clip = clip,
+		filled = filled,
+		pct_text = pct_text,
+		pct_shadow = pct_shadow,
+		vanilla_bitmap = wp_data.bitmap,
+		vanilla_arrow = wp_data.arrow,
+		vanilla_hollow = vanilla_hollow,
+		vanilla_clip = vanilla_clip,
+		vanilla_eye = vanilla_eye,
+		vanilla_base_y = v_base_y,
+		vanilla_size = v_h,
+		vanilla_size_orig = v_h,
+		vanilla_base_x_orig = v_base_x,
+		vanilla_base_y_orig = v_base_y,
 		resize_vanilla_arrow = resize_vanilla_arrow,
 		base_arrow_color = base_arrow_color,
-		size = size, base_x = base_x, base_y = base_y,
-		kind = "civilian", kind_set = false, observer_unit = nil, _van_mode = nil,
+		size = size,
+		base_x = base_x,
+		base_y = base_y,
+		kind = "civilian",
+		kind_set = false,
+		observer_unit = nil,
+		_van_mode = nil,
 	}
 	if VR and VR.create_overlay and alive(wp_data.bitmap_world) then
 		ov.vr = VR.create_overlay(wp_data.bitmap_world, size, fsize, base_arrow_color)
@@ -238,17 +354,21 @@ function WO:attach(id, wp_data)
 end
 
 function WO:update(deps)
-	if next(self._overlays) == nil then return end
+	if next(self._overlays) == nil then
+		return
+	end
 	local npc_kind = deps.npc_kind
-	local records  = deps.records or {}
-	local cfg      = deps.cfg or {}
+	local records = deps.records or {}
+	local cfg = deps.cfg or {}
 
 	local g = DI.Game.groupai()
 	local susp_hud = g and g._suspicion_hud_data
 	local susp_map
 	if susp_hud then
 		susp_map = {}
-		for k, sd in pairs(susp_hud) do susp_map[tostring(k)] = sd end
+		for k, sd in pairs(susp_hud) do
+			susp_map[tostring(k)] = sd
+		end
 	end
 
 	for id, ov in pairs(self._overlays) do
@@ -260,7 +380,7 @@ function WO:update(deps)
 			self._overlays[id] = nil
 		elseif _sync_overlay_geometry(ov) then
 			local unit = ov.observer_unit
-			local rec  = alive(unit) and records[unit:key()] or nil
+			local rec = alive(unit) and records[unit:key()] or nil
 			if rec then
 				ov._active_frames = (ov._active_frames or 0) + 1
 			else
@@ -284,7 +404,7 @@ function WO:update(deps)
 					else
 						p_icon = (rec and rec.display) or (rec and rec.progress) or 0
 						p_text = (rec and rec.progress) or p_icon
-						phase  = (rec and rec.phase) or DI.Phase.UNCOVER
+						phase = (rec and rec.phase) or DI.Phase.UNCOVER
 					end
 				else
 					phase, p_icon, p_text = DI.Phase.UNCOVER, 0, 0
@@ -293,12 +413,12 @@ function WO:update(deps)
 				phase = phase or DI.Phase.UNCOVER
 				local pct, fill_color, arrow_color
 				if p_text ~= nil then
-					pct         = View.pct_str(phase, p_text)
-					fill_color  = View.fill_color(phase, p_icon or 0)
+					pct = View.pct_str(phase, p_text)
+					fill_color = View.fill_color(phase, p_icon or 0)
 					arrow_color = View.fill_color(phase, p_text)
 				else
-					pct         = "?%"
-					fill_color  = DI.Color.UNKNOWN
+					pct = "?%"
+					fill_color = DI.Color.UNKNOWN
 					arrow_color = ov.base_arrow_color or DI.Color.CURIOUS
 				end
 
@@ -328,7 +448,9 @@ function WO:update(deps)
 end
 
 function WO:destroy_all()
-	for _, ov in pairs(self._overlays) do _destroy_overlay(ov) end
-	self._overlays    = {}
+	for _, ov in pairs(self._overlays) do
+		_destroy_overlay(ov)
+	end
+	self._overlays = {}
 	self._calling_obs = {}
 end

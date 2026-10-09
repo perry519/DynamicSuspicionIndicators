@@ -1,6 +1,8 @@
 -- Client detection orchestrator.
 
-if not DynamicSuspicionIndicatorsManager then return end
+if not DynamicSuspicionIndicatorsManager then
+	return
+end
 local DI = DynamicSuspicionIndicatorsManager
 DI.Detection = DI.Detection or {}
 local D = DI.Detection
@@ -11,37 +13,53 @@ local TP = DI.TargetPolicy
 local SO = D.SyncOverlay
 local Fallback = D.Fallback
 
-D._client_peer_susp   = D._client_peer_susp   or {}
-D._client_obs_status  = D._client_obs_status  or {}
+D._client_peer_susp = D._client_peer_susp or {}
+D._client_obs_status = D._client_obs_status or {}
 D._client_handlers_in = D._client_handlers_in or false
-D._client_dump_t      = D._client_dump_t      or 0
+D._client_dump_t = D._client_dump_t or 0
 
 local function _cam_is_alert(status)
 	return status == 2 or status == 3 or status == 4 or status == 5
 end
 
 local function _install_handlers()
-	if DI.Sync and DI.Sync.install then DI.Sync.install() end
+	if DI.Sync and DI.Sync.install then
+		DI.Sync.install()
+	end
 
-	if D._client_handlers_in then return end
+	if D._client_handlers_in then
+		return
+	end
 	if not G.has_unit_network_handler() then
-		DI.Logger.once("debug", "client:no-unit-network-handler", "client net handlers not ready: UnitNetworkHandler unavailable")
+		DI.Logger.once(
+			"debug",
+			"client:no-unit-network-handler",
+			"client net handlers not ready: UnitNetworkHandler unavailable"
+		)
 		return
 	end
 
-	G.patch_unit_network_handler("suspicion", "_dsi_susp_orig", function(self, orig, suspect_peer_id, susp_value, sender)
-		if type(suspect_peer_id) == "number" and type(susp_value) == "number" then
-			D._client_peer_susp[suspect_peer_id] = math.clamp(susp_value / 254, 0, 1)
+	G.patch_unit_network_handler(
+		"suspicion",
+		"_dsi_susp_orig",
+		function(self, orig, suspect_peer_id, susp_value, sender)
+			if type(suspect_peer_id) == "number" and type(susp_value) == "number" then
+				D._client_peer_susp[suspect_peer_id] = math.clamp(susp_value / 254, 0, 1)
+			end
+			return orig(self, suspect_peer_id, susp_value, sender)
 		end
-		return orig(self, suspect_peer_id, susp_value, sender)
-	end)
+	)
 
-	G.patch_unit_network_handler("suspicion_hud", "_dsi_susp_hud_orig", function(self, orig, observer_unit, status, sender)
-		if alive(observer_unit) and type(status) == "number" then
-			D._client_obs_status[observer_unit:key()] = status
+	G.patch_unit_network_handler(
+		"suspicion_hud",
+		"_dsi_susp_hud_orig",
+		function(self, orig, observer_unit, status, sender)
+			if alive(observer_unit) and type(status) == "number" then
+				D._client_obs_status[observer_unit:key()] = status
+			end
+			return orig(self, observer_unit, status, sender)
 		end
-		return orig(self, observer_unit, status, sender)
-	end)
+	)
 
 	Fallback.install_camera_event_patch()
 
@@ -53,7 +71,9 @@ local function _emit_alert(R, observer, kind, now_t, pu, target_allowed)
 	local p, phase = 1.0, DI.Phase.ALERTED
 	R.note_observer_alerted(observer, now_t)
 	R.put(observer, p, kind, phase)
-	if kind ~= "cam" then return end
+	if kind ~= "cam" then
+		return
+	end
 	local m = observer.movement and observer:movement()
 	local att = m and m.attention and m:attention()
 	local target = att and att.unit
@@ -63,7 +83,9 @@ local function _emit_alert(R, observer, kind, now_t, pu, target_allowed)
 end
 
 function D.collect_client(cfg, t)
-	if G.is_server() then return end
+	if G.is_server() then
+		return
+	end
 	local R = DI.Records
 	R.clear()
 	_install_handlers()
@@ -79,7 +101,10 @@ function D.collect_client(cfg, t)
 
 	if DI.Logger.is_debug() and now_t - (D._client_dump_t or 0) >= 2.0 then
 		D._client_dump_t = now_t
-		local n = 0; for _ in pairs(susp) do n = n + 1 end
+		local n = 0
+		for _ in pairs(susp) do
+			n = n + 1
+		end
 		DI.Logger.dbg(string.format("client tick: observers=%d", n))
 	end
 

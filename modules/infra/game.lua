@@ -1,4 +1,6 @@
-if not DynamicSuspicionIndicatorsManager then return end
+if not DynamicSuspicionIndicatorsManager then
+	return
+end
 local DI = DynamicSuspicionIndicatorsManager
 DI.Game = DI.Game or {}
 local G = DI.Game
@@ -17,8 +19,12 @@ end
 
 function G.current_state()
 	local m = managers.player
-	if not (m and m.current_state) then return nil end
-	local ok, s = pcall(function() return m:current_state() end)
+	if not (m and m.current_state) then
+		return nil
+	end
+	local ok, s = pcall(function()
+		return m:current_state()
+	end)
 	return ok and s or nil
 end
 
@@ -83,7 +89,9 @@ function G.make_slot_mask(...)
 end
 
 function G.send(id, payload)
-	if _G.LuaNetworking then LuaNetworking:SendToPeers(id, payload) end
+	if _G.LuaNetworking then
+		LuaNetworking:SendToPeers(id, payload)
+	end
 end
 
 function G.has_network()
@@ -91,11 +99,15 @@ function G.has_network()
 end
 
 function G.on_event(name, id, fn)
-	if _G.Hooks then Hooks:Add(name, id, fn) end
+	if _G.Hooks then
+		Hooks:Add(name, id, fn)
+	end
 end
 
 function G.post_hook(obj, method, id, fn)
-	if _G.Hooks and obj then Hooks:PostHook(obj, method, id, fn) end
+	if _G.Hooks and obj then
+		Hooks:PostHook(obj, method, id, fn)
+	end
 end
 
 function G.has_unit_network_handler()
@@ -104,8 +116,12 @@ end
 
 function G.patch_unit_network_handler(method, patch_id, wrapper)
 	local handler = _G.UnitNetworkHandler
-	if not (handler and handler[method]) then return false end
-	if handler[patch_id] then return false end
+	if not (handler and handler[method]) then
+		return false
+	end
+	if handler[patch_id] then
+		return false
+	end
 	handler[patch_id] = handler[method]
 	handler[method] = function(self, ...)
 		return wrapper(self, handler[patch_id], ...)
@@ -119,8 +135,12 @@ end
 
 function G.patch_hud_manager(method, patch_id, wrapper)
 	local manager = _G.HUDManager
-	if not (manager and manager[method]) then return false end
-	if manager[patch_id] then return false end
+	if not (manager and manager[method]) then
+		return false
+	end
+	if manager[patch_id] then
+		return false
+	end
 	manager[patch_id] = manager[method]
 	manager[method] = function(self, ...)
 		return wrapper(self, manager[patch_id], ...)
@@ -135,19 +155,27 @@ end
 local _EMPTY = {}
 
 function G.security_cameras()
-	if _G.SecurityCamera and SecurityCamera.cameras then return SecurityCamera.cameras end
+	if _G.SecurityCamera and SecurityCamera.cameras then
+		return SecurityCamera.cameras
+	end
 	return _EMPTY
 end
 
 function G.interactive_units()
 	local m = managers.interaction
-	if m and type(m._interactive_units) == "table" then return m._interactive_units end
+	if m and type(m._interactive_units) == "table" then
+		return m._interactive_units
+	end
 	return _EMPTY
 end
 
 function G.patch_security_camera_sync_net_event(patch_id, wrapper)
-	if not (_G.SecurityCamera and SecurityCamera.sync_net_event) then return false end
-	if SecurityCamera[patch_id] then return false end
+	if not (_G.SecurityCamera and SecurityCamera.sync_net_event) then
+		return false
+	end
+	if SecurityCamera[patch_id] then
+		return false
+	end
 	SecurityCamera[patch_id] = SecurityCamera.sync_net_event
 	function SecurityCamera:sync_net_event(event_id, ...)
 		return wrapper(self, event_id, SecurityCamera[patch_id], ...)
@@ -166,13 +194,19 @@ function G.level_id()
 end
 
 function G.tweak_level(level_id)
-	if not (tweak_data and tweak_data.levels and level_id) then return nil end
+	if not (tweak_data and tweak_data.levels and level_id) then
+		return nil
+	end
 	return tweak_data.levels[level_id]
 end
 
 function G.tweak_interaction()
-	if not tweak_data then return nil end
-	local ok, t = pcall(function() return tweak_data.interaction end)
+	if not tweak_data then
+		return nil
+	end
+	local ok, t = pcall(function()
+		return tweak_data.interaction
+	end)
 	return ok and t or nil
 end
 
@@ -185,7 +219,9 @@ end
 
 function G.menu_open_node(id)
 	local m = managers.menu
-	if m and m.open_node then m:open_node(id) end
+	if m and m.open_node then
+		m:open_node(id)
+	end
 end
 
 function G.hud_script(name)

@@ -1,6 +1,8 @@
 -- Client sync-off detection fallback.
 
-if not DynamicSuspicionIndicatorsManager then return end
+if not DynamicSuspicionIndicatorsManager then
+	return
+end
 local DI = DynamicSuspicionIndicatorsManager
 DI.Detection = DI.Detection or {}
 local Fallback = {}
@@ -12,13 +14,13 @@ local alive = G.alive
 local U = DI.Units
 
 -- Fallback-only state. Shared D namespace so Core._reset_client_state can clear.
-D._los_cache         = D._los_cache         or {}
-D._camera_susp_seq   = D._camera_susp_seq   or 0
-D._camera_susp_seen  = D._camera_susp_seen  or {}
+D._los_cache = D._los_cache or {}
+D._camera_susp_seq = D._camera_susp_seq or 0
+D._camera_susp_seen = D._camera_susp_seen or {}
 D._camera_fb_min_seq = D._camera_fb_min_seq or 0
-D._cam_lvl_prev      = D._cam_lvl_prev      or {}
+D._cam_lvl_prev = D._cam_lvl_prev or {}
 
-local LOS_TTL       = 0.2
+local LOS_TTL = 0.2
 local MAX_RADIUS_SQ = 3000 * 3000
 
 ------------------------------------------------------------
@@ -51,19 +53,32 @@ end
 local function _build_player_susp_data(pu, peer_susp_by_pid)
 	local data = {}
 	local sess = G.session()
-	if not sess then return data end
+	if not sess then
+		return data
+	end
 	local any_detected = false
 	for _, sv in pairs(peer_susp_by_pid) do
-		if sv > 0.01 then any_detected = true; break end
+		if sv > 0.01 then
+			any_detected = true
+			break
+		end
 	end
-	if not any_detected then return data end
+	if not any_detected then
+		return data
+	end
 	local function _add(p_unit, pid)
-		if not (alive(p_unit) and pid) then return end
+		if not (alive(p_unit) and pid) then
+			return
+		end
 		local sv = peer_susp_by_pid[pid] or 0
-		if sv <= 0.01 then return end
+		if sv <= 0.01 then
+			return
+		end
 		local mov = p_unit.movement and p_unit:movement()
 		local pos = (mov and mov.m_pos and mov:m_pos()) or p_unit:position()
-		if not pos then return end
+		if not pos then
+			return
+		end
 		data[pid] = { unit = p_unit, px = pos.x, py = pos.y, pz = pos.z, susp = sv }
 	end
 	for _, peer in pairs(sess:peers()) do
@@ -77,9 +92,13 @@ end
 -- Build closure: obs_susp(unit) → nearest-player suspicion value, LOS-attributed.
 local function _make_obs_susp(cfg, player_susp_data, now_t)
 	return function(obs_unit)
-		if not cfg.client_aggregate_fallback then return nil end
-		if not alive(obs_unit) or not next(player_susp_data) then return nil end
-		local mov     = obs_unit.movement and obs_unit:movement()
+		if not cfg.client_aggregate_fallback then
+			return nil
+		end
+		if not alive(obs_unit) or not next(player_susp_data) then
+			return nil
+		end
+		local mov = obs_unit.movement and obs_unit:movement()
 		local obs_pos = (mov and mov:m_pos()) or obs_unit:position()
 		local ox, oy, oz = obs_pos.x, obs_pos.y, obs_pos.z
 
@@ -88,21 +107,29 @@ local function _make_obs_susp(cfg, player_susp_data, now_t)
 			local dx = pd.px - ox
 			local dy = pd.py - oy
 			local dz = pd.pz - oz
-			local dsq = dx*dx + dy*dy + dz*dz
+			local dsq = dx * dx + dy * dy + dz * dz
 			count = count + 1
-			if dsq < best_sq then best_sq = dsq; best_sv = pd.susp end
+			if dsq < best_sq then
+				best_sq = dsq
+				best_sv = pd.susp
+			end
 		end
-		if count == 1 then return best_sv end
+		if count == 1 then
+			return best_sv
+		end
 
 		local obs_key = obs_unit:key()
 		local oc = D._los_cache[obs_key]
-		if not oc then oc = {}; D._los_cache[obs_key] = oc end
+		if not oc then
+			oc = {}
+			D._los_cache[obs_key] = oc
+		end
 		local los_sq, los_sv = math.huge, nil
 		for pid, pd in pairs(player_susp_data) do
 			local dx = pd.px - ox
 			local dy = pd.py - oy
 			local dz = pd.pz - oz
-			local dsq = dx*dx + dy*dy + dz*dz
+			local dsq = dx * dx + dy * dy + dz * dz
 			if dsq <= MAX_RADIUS_SQ then
 				local c = oc[pid]
 				local has_los
@@ -112,7 +139,10 @@ local function _make_obs_susp(cfg, player_susp_data, now_t)
 					has_los = not G.raycast("ray", obs_pos, Vector3(pd.px, pd.py, pd.pz + 100))
 					oc[pid] = { v = has_los, t = now_t }
 				end
-				if has_los and dsq < los_sq then los_sq = dsq; los_sv = pd.susp end
+				if has_los and dsq < los_sq then
+					los_sq = dsq
+					los_sv = pd.susp
+				end
 			end
 		end
 
@@ -134,13 +164,15 @@ end
 
 local function _cam_level(base)
 	local lvl = base and base._suspicion_sound_lvl
-	if type(lvl) == "number" and lvl > 0 then return lvl end
+	if type(lvl) == "number" and lvl > 0 then
+		return lvl
+	end
 	return nil
 end
 
 local function _cam_progress_from_level(level, observed_progress, single_camera_only)
-	local bucket_lo = math.max(level - 1/6, 0)
-	local midpoint  = math.max(level - 1/12, 1/12)
+	local bucket_lo = math.max(level - 1 / 6, 0)
+	local midpoint = math.max(level - 1 / 12, 1 / 12)
 	if single_camera_only then
 		if observed_progress and observed_progress >= bucket_lo then
 			return math.clamp(observed_progress, 0, 1)
@@ -155,7 +187,9 @@ function Fallback.count_curious_cams(cameras, status_by_key, is_alert_fn)
 	for _, camu in pairs(cameras or {}) do
 		if alive(camu) and camu.base and camu:base() and _cam_level(camu:base()) then
 			local status = status_by_key and status_by_key[camu:key()]
-			if not is_alert_fn(status) then n = n + 1 end
+			if not is_alert_fn(status) then
+				n = n + 1
+			end
 		end
 	end
 	return n
@@ -166,7 +200,9 @@ end
 ------------------------------------------------------------
 
 function Fallback.emit_player_records(R, cfg, pu, ctx, target_allowed)
-	if cfg.target_other_players == false then return end
+	if cfg.target_other_players == false then
+		return
+	end
 	for _, pd in pairs(ctx.player_susp_data) do
 		local target = pd.unit
 		local p = pd.susp
@@ -184,7 +220,9 @@ end
 
 function Fallback.tick_npc(R, observer_unit, cfg, ctx)
 	local p = ctx.obs_susp(observer_unit)
-	if not p or p <= 0.01 then return end
+	if not p or p <= 0.01 then
+		return
+	end
 	R.put(observer_unit, p, "npc", DI.Phase.UNCOVER)
 end
 
@@ -200,13 +238,19 @@ function Fallback.tick_cam(R, camu, cam_key, cfg, ctx, target_allowed, single_ca
 	end
 	D._cam_lvl_prev[cam_key] = lvl
 
-	if not lvl then return end
+	if not lvl then
+		return
+	end
 	-- Fresh gate: only emit if this cam fired a susp net event after the last
 	-- sync→fallback transition. Avoids showing pre-transition stale data.
-	if (D._camera_susp_seen[cam_key] or 0) <= (D._camera_fb_min_seq or 0) then return end
+	if (D._camera_susp_seen[cam_key] or 0) <= (D._camera_fb_min_seq or 0) then
+		return
+	end
 
 	local p = _cam_progress_from_level(lvl, ctx.obs_susp(camu), single_cam_only)
-	if not p or p <= 0.01 then return end
+	if not p or p <= 0.01 then
+		return
+	end
 	local phase = DI.Phase.UNCOVER
 
 	R.put(camu, p, "cam", phase)
