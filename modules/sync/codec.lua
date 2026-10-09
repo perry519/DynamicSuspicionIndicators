@@ -10,114 +10,108 @@ DI.Sync.Codec = Codec
 
 Codec.DELTA_THRESHOLD = 1
 Codec.PROGRESS_FLOOR = 0.01
-
-local function _entry_q(entry)
-	return type(entry) == "table" and entry.q or entry
-end
-
-local function _entry_phase(entry)
-	if type(entry) == "table" then
-		return entry.phase or DI.Phase.UNCOVER
-	end
-	return DI.Phase.UNCOVER
-end
-
-Codec.entry_q = _entry_q
-Codec.entry_phase = _entry_phase
+Codec.MAX_VERSION = 65535
 
 local function _phase_code(phase)
-	return phase == DI.Phase.SUSPICION and "s" or ""
+	return phase == DI.Phase.SUSPICION and ":s" or ""
 end
 
-local function _phase_from_code(code)
-	return type(code) == "string" and code:find("s", 1, true) and DI.Phase.SUSPICION or DI.Phase.UNCOVER
+local function _encode_entry(k, entry)
+	return k .. ":" .. entry.q .. _phase_code(entry.phase)
 end
 
-function Codec.serialize(map, keepalive)
-	local parts = {}
+function Codec.full(map, ver)
+	local parts = { "F" .. ver }
 	for k, entry in pairs(map) do
-		local q = _entry_q(entry)
-		if type(q) == "number" then
-			local code = _phase_code(_entry_phase(entry)) .. (keepalive and "k" or "")
-			parts[#parts + 1] = k .. ":" .. q .. (code ~= "" and (":" .. code) or "")
-		end
+		parts[#parts + 1] = _encode_entry(k, entry)
 	end
 	return table.concat(parts, "|")
 end
 
-function Codec.deserialize(str, stats)
-	local out = {}
-	if type(str) ~= "string" or str == "" then
-		return out
-	end
-	for entry in str:gmatch("[^|]+") do
-		if stats then
-			stats.entries = (stats.entries or 0) + 1
-		end
-		local obs, tgt, q, pc = entry:match("^(%-?%d+):(%-?%d+):(%-?%d+):?([sku]*)$")
-		if obs and tgt and q then
-			local qn = tonumber(q)
-			if stats and qn and (qn < 0 or qn > 254) then
-				stats.clamped = (stats.clamped or 0) + 1
-			end
-			out[obs .. ":" .. tgt] = {
-				p = math.clamp(qn / 254, 0, 1),
-				phase = _phase_from_code(pc),
-				keepalive = type(pc) == "string" and pc:find("k", 1, true) ~= nil,
-			}
-		elseif stats then
-			stats.invalid = (stats.invalid or 0) + 1
-		end
-	end
-	return out
-end
-
-function Codec.merge_client_progress(prev, incoming)
-	local heartbeat = false
-	for _, entry in pairs(incoming) do
-		if type(entry) == "table" and entry.keepalive then
-			heartbeat = true
-			break
-		end
-	end
-	if not heartbeat then
-		for _, entry in pairs(incoming) do
-			if type(entry) == "table" then
-				entry.keepalive = nil
-			end
-		end
-		return incoming
-	end
-
-	local refreshed = {}
-	for k, entry in pairs(incoming) do
-		local cur = prev[k]
-		if type(cur) == "table" then
-			cur.phase = entry.phase or cur.phase
-			refreshed[k] = cur
-		elseif type(cur) == "number" then
-			refreshed[k] = { p = cur, phase = entry.phase or DI.Phase.UNCOVER }
-		end
-	end
-	return refreshed
-end
-
-function Codec.has_significant_change(snap, last_sent)
+function Codec.diff(snap, last_sent, base, ver)
+	local parts, next_sent = { "D" .. base .. ">" .. ver }, {}
 	for k, entry in pairs(snap) do
-		local q = _entry_q(entry)
 		local prev = last_sent[k]
-		local prev_q = _entry_q(prev)
-		if not prev or not prev_q or math.abs(q - prev_q) >= Codec.DELTA_THRESHOLD then
-			return true
-		end
-		if _entry_phase(entry) ~= _entry_phase(prev) then
-			return true
+		if prev and math.abs(entry.q - prev.q) < Codec.DELTA_THRESHOLD and entry.phase == prev.phase then
+			next_sent[k] = prev
+		else
+			next_sent[k] = entry
+			parts[#parts + 1] = _encode_entry(k, entry)
 		end
 	end
 	for k in pairs(last_sent) do
 		if not snap[k] then
-			return true
+			parts[#parts + 1] = "x" .. k
 		end
 	end
-	return false
+	if #parts == 1 then
+		return nil, last_sent
+	end
+	return table.concat(parts, "|"), next_sent
+end
+
+function Codec.keepalive(ver)
+	return "K" .. ver
+end
+
+local function _decode_entry(out, item, stats)
+	local obs, tgt, q, pc = item:match("^(%-?%d+):(%-?%d+):(%-?%d+):?(s?)$")
+	local qn = tonumber(q)
+	if not (obs and tgt and qn) then
+		stats.invalid = (stats.invalid or 0) + 1
+		return
+	end
+	if qn < 0 or qn > 254 then
+		stats.clamped = (stats.clamped or 0) + 1
+	end
+	out[obs .. ":" .. tgt] = {
+		p = math.clamp(qn / 254, 0, 1),
+		phase = pc == "s" and DI.Phase.SUSPICION or DI.Phase.UNCOVER,
+	}
+end
+
+function Codec.apply(state, ver, str, stats)
+	stats = stats or {}
+	if type(str) ~= "string" then
+		return nil
+	end
+	local header, body = str:match("^([^|]*)|?(.*)$")
+	local kind = header:sub(1, 1)
+	if kind == "K" then
+		local v = tonumber(header:match("^K(%d+)$"))
+		if v and v == ver then
+			return state, v
+		end
+		return nil
+	end
+	if kind == "F" then
+		local v = tonumber(header:match("^F(%d+)$"))
+		if not v then
+			stats.invalid = (stats.invalid or 0) + 1
+			return nil
+		end
+		local out = {}
+		for item in body:gmatch("[^|]+") do
+			_decode_entry(out, item, stats)
+		end
+		return out, v
+	end
+	local base, v = header:match("^D(%d+)>(%d+)$")
+	base, v = tonumber(base), tonumber(v)
+	if not (base and v) then
+		stats.invalid = (stats.invalid or 0) + 1
+		return nil
+	end
+	if base ~= ver then
+		return nil
+	end
+	for item in body:gmatch("[^|]+") do
+		local removed = item:match("^x(%-?%d+:%-?%d+)$")
+		if removed then
+			state[removed] = nil
+		else
+			_decode_entry(state, item, stats)
+		end
+	end
+	return state, v
 end

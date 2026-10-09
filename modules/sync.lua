@@ -13,13 +13,21 @@ local Codec = S.Codec
 local Transport = S.Transport
 
 local FLUSH_INTERVAL = 0.05
-local HEARTBEAT_INTERVAL = 0.25
-local RECV_STALE_SEC = 0.5
+local HEARTBEAT_INTERVAL = 0.5
+local KEYFRAME_INTERVAL = 3
+local CHUNK_RATE = 12
+local CHUNK_BURST = 24
+local RECV_STALE_SEC = 1.25
 
 S._last_flush_t = 0
-S._last_heartbeat_t = 0
+S._last_send_t = 0
+S._last_keyframe_t = 0
+S._tokens = CHUNK_BURST
+S._ver = 0
+S._peers_sig = nil
 S._last_sent = {}
 S._client_progress = {}
+S._client_ver = nil
 S._handlers_installed = false
 S._was_enabled = false
 S._last_recv_t = 0
@@ -34,11 +42,36 @@ end
 
 local function _clear_client_progress()
 	S._client_progress = {}
+	S._client_ver = nil
 end
 
-------------------------------------------------------------
--- Snapshot
-------------------------------------------------------------
+local function _reset_host_state()
+	S._last_sent = {}
+	S._last_flush_t = 0
+	S._last_send_t = 0
+	S._last_keyframe_t = 0
+	S._tokens = CHUNK_BURST
+	S._peers_sig = nil
+end
+
+local function _send(payload, t)
+	Transport.send(G.send, payload)
+	S._tokens = S._tokens - math.max(1, math.ceil(#payload / Transport.MAX_PAYLOAD_BYTES))
+	S._last_send_t = t
+end
+
+local function _next_ver()
+	return S._ver % Codec.MAX_VERSION + 1
+end
+
+local function _peers_sig(peers)
+	local ids = {}
+	for id in pairs(peers) do
+		ids[#ids + 1] = tostring(id)
+	end
+	table.sort(ids)
+	return table.concat(ids, ",")
+end
 
 local function _phase_for_entry_target(entry, target)
 	local p = entry.uncover_progress
@@ -120,30 +153,24 @@ local function _build_snapshot()
 	return snap
 end
 
-------------------------------------------------------------
--- Public API
-------------------------------------------------------------
-
 function S.host_flush(t)
 	local enabled = _enabled()
 	local is_server = G.is_server()
-	local has_session = G.session() ~= nil
+	local session = G.session()
+	local has_session = session ~= nil
 	local has_net = G.has_network()
 
 	if S._was_enabled and not enabled and is_server and has_session and has_net then
-		Transport.send(G.send, "")
-		S._last_sent = {}
-		S._last_heartbeat_t = 0
+		S._ver = _next_ver()
+		Transport.send(G.send, Codec.full({}, S._ver))
+		_reset_host_state()
 		S._was_enabled = false
 		return
 	end
 	S._was_enabled = enabled
 
 	if not enabled then
-		if next(S._last_sent) ~= nil then
-			S._last_sent = {}
-		end
-		S._last_heartbeat_t = 0
+		_reset_host_state()
 		return
 	end
 	if is_server and has_session and not has_net then
@@ -152,24 +179,46 @@ function S.host_flush(t)
 	if not (is_server and has_session and has_net) then
 		return
 	end
-	if (t - S._last_flush_t) < FLUSH_INTERVAL then
+	local peers = session:peers()
+	if next(peers) == nil then
+		_reset_host_state()
+		return
+	end
+	if t < S._last_flush_t then
+		_reset_host_state()
+	elseif t - S._last_flush_t < FLUSH_INTERVAL then
+		return
+	else
+		S._tokens = math.min(CHUNK_BURST, S._tokens + (t - S._last_flush_t) * CHUNK_RATE)
+	end
+	S._last_flush_t = t
+
+	if S._tokens < 0 then
+		if next(S._last_sent) ~= nil and t - S._last_send_t >= HEARTBEAT_INTERVAL then
+			_send(Codec.keepalive(S._ver), t)
+		end
 		return
 	end
 
 	local snap = _build_snapshot()
-	if not Codec.has_significant_change(snap, S._last_sent) then
-		if next(snap) ~= nil and (t - (S._last_heartbeat_t or 0)) >= HEARTBEAT_INTERVAL then
-			Transport.send(G.send, Codec.serialize(snap, true))
-			S._last_heartbeat_t = t
-		end
-		S._last_flush_t = t
-		return
+	local ver = _next_ver()
+	local sig = _peers_sig(peers)
+	local payload, next_sent
+	local keyframe_due = t - S._last_keyframe_t >= KEYFRAME_INTERVAL and (next(snap) or next(S._last_sent))
+	if sig ~= S._peers_sig or S._last_keyframe_t == 0 or keyframe_due then
+		payload, next_sent = Codec.full(snap, ver), snap
+		S._peers_sig = sig
+		S._last_keyframe_t = t
+	else
+		payload, next_sent = Codec.diff(snap, S._last_sent, S._ver, ver)
 	end
-
-	Transport.send(G.send, Codec.serialize(snap))
-	S._last_sent = snap
-	S._last_flush_t = t
-	S._last_heartbeat_t = t
+	if payload then
+		_send(payload, t)
+		S._ver = ver
+		S._last_sent = next_sent
+	elseif next(S._last_sent) ~= nil and t - S._last_send_t >= HEARTBEAT_INTERVAL then
+		_send(Codec.keepalive(S._ver), t)
+	end
 end
 
 function S.iter_progress(cb)
@@ -212,8 +261,13 @@ local function _on_received(sender, message_type, data)
 		return
 	end
 	local stats = {}
-	S._client_progress = Codec.merge_client_progress(S._client_progress, Codec.deserialize(payload, stats))
-	S._last_recv_t = os.clock()
+	local state, ver = Codec.apply(S._client_progress, S._client_ver, payload, stats)
+	if state then
+		S._client_progress, S._client_ver = state, ver
+		S._last_recv_t = os.clock()
+	else
+		S._client_ver = nil
+	end
 	if (stats.invalid or 0) > 0 then
 		_log_once("warn", "invalid-entry", string.format("ignored %d invalid sync payload entries", stats.invalid))
 	end
@@ -225,7 +279,7 @@ end
 local function _reset_session_state()
 	_clear_client_progress()
 	Transport.reset()
-	S._last_sent = {}
+	_reset_host_state()
 end
 
 function S.install()

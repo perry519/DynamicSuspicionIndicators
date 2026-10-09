@@ -8,7 +8,7 @@ DI.Sync = DI.Sync or {}
 local Transport = {}
 DI.Sync.Transport = Transport
 
-Transport.MSG_ID = "DSI_susp_v1"
+Transport.MSG_ID = "DSI_susp_v2"
 Transport.MAX_PAYLOAD_BYTES = 180
 
 local _send_seq = 0
@@ -57,10 +57,11 @@ function Transport.decode(sender, data)
 		)
 		return nil
 	end
-	local key = tostring(sender or "unknown") .. ":" .. seq
+
+	local key = tostring(sender or "unknown")
 	local acc = _recv_chunks[key]
-	if not acc then
-		acc = { total = total, count = 0, parts = {} }
+	if not acc or acc.seq ~= seq then
+		acc = { seq = seq, total = total, count = 0, parts = {} }
 		_recv_chunks[key] = acc
 	end
 	if acc.total ~= total then
