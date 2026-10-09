@@ -299,6 +299,7 @@ function H.place_records(records, roles, allowed, cfg, cam)
 		DI.Color.refresh_from_settings()
 		_G.DP._colors_dirty = false
 	end
+	if not next(allowed) then return end
 	local CURIOUS = DI.Color.CURIOUS
 	local view    = _build_view(cam, H._panel, H._ws)
 
@@ -318,22 +319,6 @@ function H.place_records(records, roles, allowed, cfg, cam)
 				layout = "suspicion"
 			else
 				layout = "flat"
-			end
-
-			-- View values (was Phase.view_hud_item)
-			local pct, fill_color, text_color
-			if rec._target_alert then
-				pct        = "!"
-				fill_color = DI.Color.ALERTED
-				text_color = DI.Color.ALERTED
-			elseif p_text == nil then
-				pct        = "?%"
-				fill_color = DI.Color.UNKNOWN
-				text_color = DI.Color.UNKNOWN
-			else
-				pct        = DI.HudView.pct_str(phase, p_text)
-				fill_color = DI.HudView.fill_color(phase, p_show or 0)
-				text_color = DI.HudView.fill_color(phase, p_text)
 			end
 
 			local kind_icon_visible = layout == "suspicion"
@@ -358,6 +343,20 @@ function H.place_records(records, roles, allowed, cfg, cam)
 				else
 					local hide_wo = _hide_for_waypoint_overlay(rec, layout, has_wo, cfg)
 					local paint   = _decide_paint(rec, layout, kind_icon_visible, cfg, hide_wo)
+					local pct, fill_color, text_color
+					if rec._target_alert then
+						pct        = "!"
+						fill_color = DI.Color.ALERTED
+						text_color = DI.Color.ALERTED
+					elseif p_text == nil then
+						pct        = "?%"
+						fill_color = DI.Color.UNKNOWN
+						text_color = DI.Color.UNKNOWN
+					else
+						pct        = DI.HudView.pct_str(phase, p_text)
+						fill_color = DI.HudView.fill_color(phase, p_show or 0)
+						text_color = DI.HudView.fill_color(phase, p_text)
+					end
 					local kt = A.kind_textures_for(cfg.icon_style)
 					_paint_item(item, rec, pct, fill_color, text_color, paint, p_show, CURIOUS, kt)
 					item.panel:set_visible(true)

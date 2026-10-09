@@ -146,8 +146,17 @@ function D.collect_client(cfg, t)
 		end
 	end
 
-	local cameras = G.security_cameras()
-	if next(cameras) then
+	local scan_cameras = not sync_active
+	if not scan_cameras then
+		for _, status in pairs(D._client_obs_status) do
+			if _cam_is_alert(status) then
+				scan_cameras = true
+				break
+			end
+		end
+	end
+	local cameras = scan_cameras and G.security_cameras()
+	if cameras and next(cameras) then
 		local single_cam_only = false
 		if not sync_active then
 			local curious_cams = Fallback.count_curious_cams(cameras, D._client_obs_status, _cam_is_alert)
@@ -161,13 +170,16 @@ function D.collect_client(cfg, t)
 		end
 
 		for _, camu in pairs(cameras) do
-			if alive(camu) and camu.base and camu:base() then
+			if alive(camu) then
 				local cam_key = camu:key()
 				local status = D._client_obs_status[cam_key]
-				if _cam_is_alert(status) then
-					_emit_alert(R, camu, "cam", now_t, pu, target_allowed)
-				elseif not sync_active then
-					Fallback.tick_cam(R, camu, cam_key, cfg, fctx, target_allowed, single_cam_only, pu)
+				local alert = _cam_is_alert(status)
+				if (alert or not sync_active) and camu.base and camu:base() then
+					if alert then
+						_emit_alert(R, camu, "cam", now_t, pu, target_allowed)
+					else
+						Fallback.tick_cam(R, camu, cam_key, cfg, fctx, target_allowed, single_cam_only, pu)
+					end
 				end
 			end
 		end

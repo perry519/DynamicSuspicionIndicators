@@ -12,6 +12,7 @@ local alive = G.alive
 UI.TTL = 0.25
 UI._cache = UI._cache or {}
 UI._cache_t = UI._cache_t or -999
+UI._world_scanned = UI._world_scanned or false
 
 local WORLD_SLOTS = { 1, 8, 11, 12, 14, 16, 18, 21, 22, 24, 25, 26, 33, 34, 35 }
 
@@ -59,6 +60,10 @@ local function _rebuild()
 		_add(lookup, unit)
 	end
 
+	return lookup
+end
+
+local function _add_world(lookup)
 	if _G.World then
 		local ok, err = pcall(function()
 			local mask = G.make_slot_mask(unpack(WORLD_SLOTS))
@@ -70,20 +75,24 @@ local function _rebuild()
 			DI.Logger.once("debug", "unit-index:world-sweep-failed", "unit index world sweep failed: " .. tostring(err))
 		end
 	end
-
-	return lookup
 end
 
-function UI.lookup(now_t)
-	if (now_t or 0) - (UI._cache_t or -999) < UI.TTL then
-		return UI._cache
+function UI.lookup(now_t, requested_id)
+	local t = now_t or 0
+	if t - (UI._cache_t or -999) >= UI.TTL then
+		UI._cache = _rebuild()
+		UI._cache_t = t
+		UI._world_scanned = false
 	end
-	UI._cache = _rebuild()
-	UI._cache_t = now_t or 0
+	if (requested_id == nil or not alive(UI._cache[requested_id])) and not UI._world_scanned then
+		_add_world(UI._cache)
+		UI._world_scanned = true
+	end
 	return UI._cache
 end
 
 function UI.invalidate()
 	UI._cache = {}
 	UI._cache_t = -999
+	UI._world_scanned = false
 end

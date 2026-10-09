@@ -6,6 +6,55 @@ DI.HudGlyph = DI.HudGlyph or {}
 local G = DI.HudGlyph
 local alive = DI.Game.alive
 local A = DI.Assets
+local gui_state = setmetatable({}, { __mode = "k" })
+
+local function _state(element)
+	local state = gui_state[element]
+	if not state then
+		state = {}
+		gui_state[element] = state
+	end
+	return state
+end
+
+function G.set_visible(element, visible)
+	if alive(element) and element:visible() ~= visible then element:set_visible(visible) end
+end
+
+function G.set_alpha(element, alpha)
+	if alive(element) and element:alpha() ~= alpha then element:set_alpha(alpha) end
+end
+
+function G.set_color(element, color)
+	if not (alive(element) and color) then return end
+	local state = _state(element)
+	local r, g, b, a = color.r, color.g, color.b, color.a
+	local has_components = r ~= nil or g ~= nil or b ~= nil or a ~= nil
+	local unchanged = has_components and state.color_components
+		and state.color_r == r and state.color_g == g and state.color_b == b and state.color_a == a
+		or not has_components and state.color_ref == color
+	if unchanged then return end
+	element:set_color(color)
+	state.color_ref = color
+	state.color_components = has_components
+	state.color_r, state.color_g, state.color_b, state.color_a = r, g, b, a
+end
+
+function G.set_text(element, value)
+	if not alive(element) then return end
+	local state = _state(element)
+	if state.text == value then return end
+	element:set_text(value)
+	state.text = value
+end
+
+function G.set_center(element, x, y)
+	if not alive(element) then return end
+	local state = _state(element)
+	if state.center_x == x and state.center_y == y then return end
+	element:set_center(x, y)
+	state.center_x, state.center_y = x, y
+end
 
 function G.kind_texture(kind_textures, kind, variant)
 	local set = kind_textures and (kind_textures[kind] or kind_textures.civilian)
@@ -14,8 +63,7 @@ end
 
 function G.set_bitmap_image(bitmap, texture)
 	if alive(bitmap) and texture then
-		pcall(function() bitmap:set_image(texture) end)
-		return true
+		return pcall(function() bitmap:set_image(texture) end)
 	end
 	return false
 end
@@ -23,29 +71,32 @@ end
 function G.paint_text_pair(text, shadow, visible, value, color, cx, cy)
 	local t = visible and (value or "") or ""
 	if alive(text) then
-		text:set_text(t)
-		text:set_visible(visible)
+		G.set_text(text, t)
+		G.set_visible(text, visible)
 		if visible then
-			if color then text:set_color(color) end
-			if cx and cy then text:set_center(cx, cy) end
+			G.set_color(text, color)
+			if cx and cy then G.set_center(text, cx, cy) end
 		end
 	end
 	if alive(shadow) then
-		shadow:set_text(t)
-		shadow:set_visible(visible)
-		if visible and cx and cy then shadow:set_center(cx + 1, cy + 1) end
+		G.set_text(shadow, t)
+		G.set_visible(shadow, visible)
+		if visible and cx and cy then G.set_center(shadow, cx + 1, cy + 1) end
 	end
 end
 
 function G.render_clipped_fill(clip, filled, size, base_y, progress, color)
 	local fp = math.clamp(progress or 0, 0, 1)
 	if alive(clip) then
-		clip:set_h(math.max(0, size * fp))
-		clip:set_y((base_y or 0) + size * (1 - fp))
+		local h = math.max(0, size * fp)
+		local y = (base_y or 0) + size * (1 - fp)
+		if clip:h() ~= h then clip:set_h(h) end
+		if clip:y() ~= y then clip:set_y(y) end
 	end
 	if alive(filled) then
-		filled:set_y(-size * (1 - fp))
-		filled:set_color(color)
+		local y = -size * (1 - fp)
+		if filled:y() ~= y then filled:set_y(y) end
+		G.set_color(filled, color)
 	end
 end
 
@@ -72,8 +123,8 @@ function G.paint_kind_bitmap(bitmap, state, kind, kind_textures, color)
 			state._kind_textures = kind_textures
 		end
 	end
-	bitmap:set_visible(state._kind_tex_for ~= nil)
-	if color then bitmap:set_color(color) end
+	G.set_visible(bitmap, state._kind_tex_for ~= nil)
+	G.set_color(bitmap, color)
 	return state._kind_tex_for ~= nil
 end
 

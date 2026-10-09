@@ -5,7 +5,7 @@ if not DynamicSuspicionIndicatorsManager then
 end
 local DI = DynamicSuspicionIndicatorsManager
 DI.Detection = DI.Detection or {}
-local SO = {}
+local SO = DI.Detection.SyncOverlay or {}
 DI.Detection.SyncOverlay = SO
 
 local G = DI.Game
@@ -18,21 +18,38 @@ end
 
 function SO.apply(R, cfg, now_t, pu, target_allowed)
 	local D = DI.Detection
-	local lookup = DI.UnitIndex.lookup(now_t)
+	-- One collection cannot change NPC state; refresh these checks next frame.
+	local observers, allowed_targets, cameras = {}, {}, {}
+	for _, camera in pairs(G.security_cameras()) do
+		cameras[camera] = true
+	end
+	local lookup
+	local function resolve(id)
+		if not lookup or not alive(lookup[id]) then
+			lookup = DI.UnitIndex.lookup(now_t, id)
+		end
+		return lookup[id]
+	end
 	DI.Sync.iter_progress(function(obs_id, target_id, p, sync_phase)
 		if type(p) ~= "number" or p <= 0.01 then
 			return
 		end
-		local observer = lookup[obs_id]
+		local observer = resolve(obs_id)
 		if not alive(observer) then
 			return
 		end
-		if U.pacified(observer) then
+		local key = observers[observer]
+		if key == nil then
+			key = not U.pacified(observer) and observer:key() or false
+			observers[observer] = key
+		end
+		if not key then
 			return
 		end
-		local kind = U.is_camera(observer) and "cam" or "npc"
+		local target = resolve(target_id)
+		local kind = cameras[observer] and "cam" or "npc"
 		local phase = sync_phase or DI.Phase.UNCOVER
-		local observer_cleared = D._client_obs_status[observer:key()] == 0 and phase ~= DI.Phase.SUSPICION
+		local observer_cleared = D._client_obs_status[key] == 0 and phase ~= DI.Phase.SUSPICION
 		if phase == DI.Phase.SUSPICION then
 			if not cfg.show_early_unmasked_suspicion then
 				return
@@ -44,9 +61,15 @@ function SO.apply(R, cfg, now_t, pu, target_allowed)
 		if not observer_cleared then
 			R.put(observer, p, kind, phase)
 		end
-		local target = lookup[target_id]
-		if alive(target) and target ~= observer and target ~= pu and target_allowed(target) then
-			R.put(target, p, "obj", phase, observer)
+		if alive(target) and target ~= observer and target ~= pu then
+			local allowed = allowed_targets[target]
+			if allowed == nil then
+				allowed = not not target_allowed(target)
+				allowed_targets[target] = allowed
+			end
+			if allowed then
+				R.put(target, p, "obj", phase, observer)
+			end
 		end
 	end)
 end

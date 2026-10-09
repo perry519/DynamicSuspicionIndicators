@@ -7,6 +7,7 @@ DynamicSuspicionIndicatorsManager = DynamicSuspicionIndicatorsManager or {}
 local DI = DynamicSuspicionIndicatorsManager
 
 DI.smooth_speed = 5
+local HOST_COLLECT_INTERVAL = 0.1
 DI.mod_path = "mods/DynamicSuspicionIndicators/"
 DI.demo_mode = false
 
@@ -92,6 +93,7 @@ function DI:_update(t, dt)
 	local wo_deps = { npc_kind = DI.Units.npc_kind, records = R.records, cfg = cfg }
 
 	if DI.demo_mode then
+		self._last_host_collect_t = nil
 		DI.HudItem.destroy_all()
 		DI.HudItem.place_demo(cfg)
 		DI.WaypointOverlay:update({ npc_kind = DI.Units.npc_kind, records = {}, cfg = cfg })
@@ -99,6 +101,7 @@ function DI:_update(t, dt)
 	end
 
 	if not G.whisper_mode() then
+		self._last_host_collect_t = nil
 		DI.HudItem.destroy_all()
 		DI.HudItem.destroy_demo()
 		R.clear()
@@ -110,7 +113,11 @@ function DI:_update(t, dt)
 	if G.is_client() then
 		DI.Detection.collect_client(cfg, t)
 	else
-		DI.Detection.collect(cfg)
+		local last_t = self._last_host_collect_t
+		if not last_t or t < last_t or t - last_t >= HOST_COLLECT_INTERVAL then
+			DI.Detection.collect(cfg)
+			self._last_host_collect_t = t
+		end
 		if DI.Sync and DI.Sync.host_flush then
 			DI.Sync.host_flush(t)
 		end
@@ -147,6 +154,7 @@ local function _reset_client_state()
 	DI.Records._prev = {}
 	DI.Records._smooth = {}
 	DI.Records._smooth_phase = {}
+	DI._last_host_collect_t = nil
 	if DI.UnitIndex and DI.UnitIndex.invalidate then
 		DI.UnitIndex.invalidate()
 	end

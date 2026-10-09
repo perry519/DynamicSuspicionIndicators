@@ -13,6 +13,7 @@ local Glyph = DI.HudGlyph
 local View = DI.HudView
 local Render = WO.Render
 local VR = WO.VR
+local STATIC_CHECK_INTERVAL = 0.1
 
 WO.icon_size = 22
 WO.arrow_size = 15
@@ -89,22 +90,55 @@ local function _set_xy(el, x, y)
 	end
 end
 
+local function _texture_name(bitmap)
+	return bitmap:texture_name()
+end
+
+local function _texture_size(bitmap)
+	return bitmap:texture_width(), bitmap:texture_height()
+end
+
+local function _arrow_height(ov, arrow, width)
+	local name_ok, texture_name = pcall(_texture_name, arrow)
+	local cacheable = name_ok and texture_name ~= nil
+	if not cacheable or ov._arrow_size_source ~= arrow or ov._arrow_size_texture ~= texture_name then
+		local size_ok, texture_width, texture_height = pcall(_texture_size, arrow)
+		if
+			size_ok
+			and type(texture_width) == "number"
+			and type(texture_height) == "number"
+			and texture_width > 0
+			and texture_height > 0
+		then
+			local aspect = texture_height / texture_width
+			if cacheable then
+				ov._arrow_size_source = arrow
+				ov._arrow_size_texture = texture_name
+				ov._arrow_size_aspect = aspect
+			end
+			return aspect * width
+		end
+		ov._arrow_size_source = nil
+		ov._arrow_size_texture = nil
+		ov._arrow_size_aspect = nil
+		return width
+	end
+	return (ov._arrow_size_aspect or 1) * width
+end
+
 local function _sync_overlay_geometry(ov)
 	if not alive(ov.vanilla_bitmap) then
 		return false
 	end
 
 	if ov.resize_vanilla_arrow and alive(ov.vanilla_arrow) then
-		local ax, ay = ov.vanilla_arrow:center()
-		local w, h = WO.arrow_size, WO.arrow_size
-		local ok, tw, th = pcall(function()
-			return ov.vanilla_arrow:texture_width(), ov.vanilla_arrow:texture_height()
-		end)
-		if ok and type(tw) == "number" and type(th) == "number" and tw > 0 then
-			h = th / tw * w
+		local w = WO.arrow_size
+		local h = _arrow_height(ov, ov.vanilla_arrow, w)
+		if ov.vanilla_arrow:w() ~= w or ov.vanilla_arrow:h() ~= h then
+			local ax, ay = ov.vanilla_arrow:center()
+			ov.vanilla_arrow:set_size(w, h)
+			ov.vanilla_arrow:set_center(ax, ay)
 		end
-		ov.vanilla_arrow:set_size(w, h)
-		ov.vanilla_arrow:set_center(ax, ay)
 	end
 
 	local cx, cy = ov.vanilla_bitmap:center()
@@ -122,26 +156,38 @@ local function _sync_overlay_geometry(ov)
 	local van_y = cy - van_size * 0.5
 	ov.vanilla_base_x_orig = cx - ov.vanilla_size_orig * 0.5
 	ov.vanilla_base_y_orig = cy - ov.vanilla_size_orig * 0.5
-	ov.vanilla_base_y = van_y
-	_set_xy(ov.vanilla_hollow, van_x, van_y)
-	_set_xy(ov.vanilla_clip, van_x, van_y)
+	if ov.vanilla_base_x ~= van_x or ov.vanilla_base_y ~= van_y then
+		ov.vanilla_base_x = van_x
+		ov.vanilla_base_y = van_y
+		_set_xy(ov.vanilla_hollow, van_x, van_y)
+		_set_xy(ov.vanilla_clip, van_x, van_y)
+	end
 
 	return true
 end
 
 local function _tick_lifecycle(ov, sd, npc_kind, kind_textures)
-	if not (alive(ov.hollow) and alive(ov.clip) and alive(ov.filled)) then
-		return false
-	end
 	local unit = ov.observer_unit
+	local unit_changed = false
 	if not alive(unit) and sd and alive(sd.u_observer) then
 		unit = sd.u_observer
 		ov.observer_unit = unit
+		unit_changed = true
 	end
-	if alive(unit) and (not ov.kind_set or ov._kind_textures ~= kind_textures) and npc_kind then
-		_set_kind(ov, npc_kind(unit), kind_textures)
+	if
+		alive(unit)
+		and npc_kind
+		and (unit_changed or ov._kind_textures ~= kind_textures or (not ov.kind_set and not ov._subdued_mode))
+	then
+		local kind = npc_kind(unit)
+		local changed = ov.kind ~= kind or ov._kind_textures ~= kind_textures
+		if changed or (not ov.kind_set and not ov._subdued_mode) then
+			_set_kind(ov, kind, kind_textures)
+			if changed then
+				ov._subdued_mode = nil
+			end
+		end
 	end
-	return true
 end
 
 local function _is_calling(sd)
@@ -344,6 +390,7 @@ function WO:attach(id, wp_data)
 		kind = "civilian",
 		kind_set = false,
 		observer_unit = nil,
+		_observer_key_text = id:sub(6),
 		_van_mode = nil,
 	}
 	if VR and VR.create_overlay and alive(wp_data.bitmap_world) then
@@ -360,25 +407,41 @@ function WO:update(deps)
 	local npc_kind = deps.npc_kind
 	local records = deps.records or {}
 	local cfg = deps.cfg or {}
+	local kind_textures = A.kind_textures_for(cfg.icon_style)
+	local now_t = DI.Game.app_time()
+	local check_static = not self._next_static_check_t or now_t >= self._next_static_check_t
+	if check_static then
+		self._next_static_check_t = now_t + STATIC_CHECK_INTERVAL
+	end
 
 	local g = DI.Game.groupai()
 	local susp_hud = g and g._suspicion_hud_data
 	local susp_map
-	if susp_hud then
-		susp_map = {}
-		for k, sd in pairs(susp_hud) do
-			susp_map[tostring(k)] = sd
-		end
-	end
 
 	for id, ov in pairs(self._overlays) do
-		local obs_key = id:sub(6)
-		local sd = susp_map and susp_map[obs_key] or nil
-		local kind_textures = A.kind_textures_for(cfg.icon_style)
-		if not _tick_lifecycle(ov, sd, npc_kind, kind_textures) then
+		if not (alive(ov.hollow) and alive(ov.clip) and alive(ov.filled)) or not _sync_overlay_geometry(ov) then
 			_destroy_overlay(ov)
 			self._overlays[id] = nil
-		elseif _sync_overlay_geometry(ov) then
+		elseif not (ov._static and not check_static and not ov.vr) then
+			local obs_key = ov._observer_key_text or id:sub(6)
+			ov._observer_key_text = obs_key
+			local sd
+			if susp_hud then
+				sd = ov._suspicion_key and susp_hud[ov._suspicion_key]
+				if not sd then
+					-- Resolve new/replaced sources immediately; established keys use the live table directly.
+					if not susp_map then
+						susp_map = {}
+						for key in pairs(susp_hud) do
+							susp_map[tostring(key)] = key
+						end
+					end
+					ov._suspicion_key = susp_map[obs_key]
+					sd = ov._suspicion_key and susp_hud[ov._suspicion_key]
+				end
+			end
+			-- Subdued rendering changes textures and clears kind_set; refresh both together.
+			_tick_lifecycle(ov, sd, npc_kind, kind_textures)
 			local unit = ov.observer_unit
 			local rec = alive(unit) and records[unit:key()] or nil
 			if rec then
@@ -432,6 +495,7 @@ function WO:update(deps)
 					icons_on = A.uses_icons_mode(cfg.icon_style),
 				}
 			end
+			ov._static = state.kind == "calling" or state.kind == "subdued" or (state.alerted and state.icons_on)
 			if VR and VR.should_hide_screen_overlay and VR.should_hide_screen_overlay(ov) then
 				VR.hide_screen_overlay(ov)
 			else
@@ -440,9 +504,6 @@ function WO:update(deps)
 			if VR and VR.update then
 				VR.update(ov, state, cfg, kind_textures, _sync_overlay_geometry, Render.apply, _set_kind)
 			end
-		else
-			_destroy_overlay(ov)
-			self._overlays[id] = nil
 		end
 	end
 end
@@ -453,4 +514,5 @@ function WO:destroy_all()
 	end
 	self._overlays = {}
 	self._calling_obs = {}
+	self._next_static_check_t = nil
 end

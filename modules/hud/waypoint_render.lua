@@ -16,16 +16,20 @@ local _paint_text_pair = Glyph.paint_text_pair
 local _kind_texture = Glyph.kind_texture
 local _set_bitmap_image = Glyph.set_bitmap_image
 local _set_alert = Glyph.set_kind_alert
+local _set_kind = Glyph.set_kind_fill
+local _set_visible = Glyph.set_visible
+local _set_alpha = Glyph.set_alpha
+local _set_color = Glyph.set_color
 local _render_clipped_fill = Glyph.render_clipped_fill
 
 local function _show_overlay(ov, visible)
-	if alive(ov.hollow) then ov.hollow:set_visible(visible) end
-	if alive(ov.clip)   then ov.clip:set_visible(visible)   end
+	_set_visible(ov.hollow, visible)
+	_set_visible(ov.clip, visible)
 end
 
 local function _show_vanilla_fill(ov, visible)
-	if alive(ov.vanilla_hollow) then ov.vanilla_hollow:set_visible(visible) end
-	if alive(ov.vanilla_clip)   then ov.vanilla_clip:set_visible(visible)   end
+	_set_visible(ov.vanilla_hollow, visible)
+	_set_visible(ov.vanilla_clip, visible)
 end
 
 local function _resize_vanilla_overlay(ov, sz, bx, by)
@@ -59,8 +63,8 @@ local function _render_vanilla_fill(ov, fp, p_icon, fill_color)
 		_render_clipped_fill(ov.vanilla_clip, ov.vanilla_eye, ov.vanilla_size, ov.vanilla_base_y, fp, fill_color)
 	end
 	if alive(ov.vanilla_hollow) then
-		ov.vanilla_hollow:set_color((p_icon == nil) and DI.Color.UNKNOWN or DI.Color.CURIOUS)
-		ov.vanilla_hollow:set_alpha(0.85)
+		_set_color(ov.vanilla_hollow, (p_icon == nil) and DI.Color.UNKNOWN or DI.Color.CURIOUS)
+		_set_alpha(ov.vanilla_hollow, 0.85)
 	end
 end
 
@@ -91,57 +95,65 @@ local function _apply_calling_mode(ov)
 	end
 	_show_overlay(ov, false)
 	_show_vanilla_fill(ov, false)
-	if alive(ov.pct_text)      then ov.pct_text:set_visible(false)   end
-	if alive(ov.pct_shadow)    then ov.pct_shadow:set_visible(false) end
+	_set_visible(ov.pct_text, false)
+	_set_visible(ov.pct_shadow, false)
 	if alive(ov.vanilla_arrow) then ov.vanilla_arrow:set_alpha(1)    end
 end
 
 local function _hide_subdued_text(ov)
-	if alive(ov.pct_text)   then ov.pct_text:set_visible(false)   end
-	if alive(ov.pct_shadow) then ov.pct_shadow:set_visible(false) end
+	_set_visible(ov.pct_text, false)
+	_set_visible(ov.pct_shadow, false)
 end
 
 local function _apply_subdued_alert_mode(ov, kind_textures)
 	if alive(ov.vanilla_bitmap) then ov.vanilla_bitmap:set_alpha(0) end
 	if alive(ov.vanilla_arrow)  then ov.vanilla_arrow:set_alpha(0)  end
 	_show_vanilla_fill(ov, false)
+	local image_ok = true
 	if alive(ov.hollow) then
-		_set_bitmap_image(ov.hollow, _kind_texture(kind_textures, ov.kind or "civilian", "alerted"))
-		ov.hollow:set_visible(true)
-		ov.hollow:set_color(DI.Color.ALERTED)
-		ov.hollow:set_alpha(1)
+		if ov._subdued_mode ~= "alert" then
+			image_ok = _set_bitmap_image(ov.hollow, _kind_texture(kind_textures, ov.kind or "civilian", "alerted"))
+		end
+		_set_visible(ov.hollow, true)
+		_set_color(ov.hollow, DI.Color.ALERTED)
+		_set_alpha(ov.hollow, 1)
 	end
-	if alive(ov.clip)   then ov.clip:set_visible(false)   end
-	if alive(ov.filled) then ov.filled:set_visible(false) end
+	_set_visible(ov.clip, false)
+	_set_visible(ov.filled, false)
 	_hide_subdued_text(ov)
 	ov.kind_set = false
+	ov._subdued_mode = image_ok and "alert" or nil
 end
 
 local function _apply_subdued_vhp_mode(ov)
 	if alive(ov.vanilla_bitmap) then ov.vanilla_bitmap:set_alpha(0) end
 	if alive(ov.vanilla_arrow)  then ov.vanilla_arrow:set_alpha(0)  end
 	_show_vanilla_fill(ov, false)
+	local image_ok = true
 	if alive(ov.hollow) then
-		ov.hollow:set_visible(true)
-		pcall(function() ov.hollow:set_image(A.menu_singletick) end)
-		ov.hollow:set_color(DI.Color.CURIOUS)
-		ov.hollow:set_alpha(1)
+		_set_visible(ov.hollow, true)
+		if ov._subdued_mode ~= "check" then
+			image_ok = pcall(function() ov.hollow:set_image(A.menu_singletick) end)
+		end
+		_set_color(ov.hollow, DI.Color.CURIOUS)
+		_set_alpha(ov.hollow, 1)
 	end
-	if alive(ov.clip)       then ov.clip:set_visible(false)       end
+	_set_visible(ov.clip, false)
 	_hide_subdued_text(ov)
 	ov.kind_set = false
+	ov._subdued_mode = image_ok and "check" or nil
 end
 
 local function _apply_icons_mode(ov, alerted, p_icon, fill_color, kind_textures)
 	if alive(ov.vanilla_bitmap) then ov.vanilla_bitmap:set_alpha(0) end
 	_show_overlay(ov, true)
-	if alive(ov.filled) then ov.filled:set_visible(true) end
+	_set_visible(ov.filled, true)
 	_show_vanilla_fill(ov, false)
 	_set_alert(ov, alerted, kind_textures)
 	_render_fill(ov, (type(p_icon) == "number") and p_icon or 0, fill_color)
 	if alive(ov.hollow) then
-		ov.hollow:set_color(p_icon == nil and DI.Color.UNKNOWN or DI.Color.CURIOUS)
-		ov.hollow:set_alpha(alerted and 0 or 0.85)
+		_set_color(ov.hollow, p_icon == nil and DI.Color.UNKNOWN or DI.Color.CURIOUS)
+		_set_alpha(ov.hollow, alerted and 0 or 0.85)
 	end
 end
 
@@ -167,6 +179,13 @@ local function _apply_vanilla_mode(ov, alerted, p_icon, fill_color, cfg)
 end
 
 function R.apply(ov, state, cfg, kind_textures)
+	if state.kind == "subdued" and ov.kind_set and ov._subdued_mode then
+		ov._subdued_mode = nil
+	end
+	if state.kind ~= "subdued" and ov._subdued_mode then
+		ov._subdued_mode = nil
+		_set_kind(ov, ov.kind or "civilian", kind_textures)
+	end
 	if state.kind == "calling" then
 		_apply_calling_mode(ov)
 		return
