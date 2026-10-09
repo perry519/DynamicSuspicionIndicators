@@ -241,11 +241,16 @@ function WO:install_hooks()
 	end)
 end
 
-function WO:attach(id, wp_data)
+function WO:attach(id, wp_data, preview_observer)
 	if not (id and wp_data) then
 		return
 	end
-	if not (type(id) == "string" and id:lower():find("^susp1")) then
+	local alert_preview = preview_observer ~= nil
+	if alert_preview then
+		if type(id) ~= "string" or id == "" or not alive(preview_observer) then
+			return
+		end
+	elseif not (type(id) == "string" and id:lower():find("^susp1")) then
 		return
 	end
 	if not alive(wp_data.bitmap) then
@@ -389,8 +394,9 @@ function WO:attach(id, wp_data)
 		base_y = base_y,
 		kind = "civilian",
 		kind_set = false,
-		observer_unit = nil,
-		_observer_key_text = id:sub(6),
+		observer_unit = preview_observer,
+		alert_preview = alert_preview,
+		_observer_key_text = not alert_preview and id:sub(6) or nil,
 		_van_mode = nil,
 	}
 	if VR and VR.create_overlay and alive(wp_data.bitmap_world) then
@@ -398,6 +404,14 @@ function WO:attach(id, wp_data)
 	end
 
 	self._overlays[id] = ov
+	return ov
+end
+
+function WO:attach_alert_preview(id, wp_data, observer)
+	if type(id) ~= "string" or id == "" or not alive(observer) then
+		return nil
+	end
+	return self:attach(id, wp_data, observer)
 end
 
 function WO:update(deps)
@@ -423,27 +437,33 @@ function WO:update(deps)
 			_destroy_overlay(ov)
 			self._overlays[id] = nil
 		elseif not (ov._static and not check_static and not ov.vr) then
-			local obs_key = ov._observer_key_text or id:sub(6)
-			ov._observer_key_text = obs_key
-			local sd
-			if susp_hud then
-				sd = ov._suspicion_key and susp_hud[ov._suspicion_key]
-				if not sd then
-					-- Resolve new/replaced sources immediately; established keys use the live table directly.
-					if not susp_map then
-						susp_map = {}
-						for key in pairs(susp_hud) do
-							susp_map[tostring(key)] = key
-						end
-					end
-					ov._suspicion_key = susp_map[obs_key]
+			local obs_key, sd
+			if not ov.alert_preview then
+				obs_key = ov._observer_key_text or id:sub(6)
+				ov._observer_key_text = obs_key
+				if susp_hud then
 					sd = ov._suspicion_key and susp_hud[ov._suspicion_key]
+					if not sd then
+						-- Resolve new/replaced sources immediately; established keys use the live table directly.
+						if not susp_map then
+							susp_map = {}
+							for key in pairs(susp_hud) do
+								susp_map[tostring(key)] = key
+							end
+						end
+						ov._suspicion_key = susp_map[obs_key]
+						sd = ov._suspicion_key and susp_hud[ov._suspicion_key]
+					end
 				end
 			end
 			-- Subdued rendering changes textures and clears kind_set; refresh both together.
 			_tick_lifecycle(ov, sd, npc_kind, kind_textures)
 			local unit = ov.observer_unit
-			local rec = alive(unit) and records[unit:key()] or nil
+			local rec = not ov.alert_preview and alive(unit) and records[unit:key()] or nil
+			local hide_idle = not ov.alert_preview
+				and alive(unit)
+				and deps.hide_idle_observer
+				and deps.hide_idle_observer(unit:key())
 			if rec then
 				ov._active_frames = (ov._active_frames or 0) + 1
 			else
@@ -451,12 +471,14 @@ function WO:update(deps)
 			end
 
 			local state
-			if _obs_is_calling(obs_key, sd) then
+			if not ov.alert_preview and _obs_is_calling(obs_key, sd) then
 				state = { kind = "calling" }
-			elseif U.is_subdued(unit, sd) then
+			elseif ov.kind == "civilian" and not ov.alert_preview and U.is_subdued(unit, sd) then
 				state = { kind = "subdued" }
+			elseif not ov.alert_preview and hide_idle and not rec and not (sd and sd.alerted) then
+				state = { kind = "hidden" }
 			else
-				local is_alerted = sd and sd.alerted or false
+				local is_alerted = ov.alert_preview or (sd and sd.alerted) or false
 				local phase, p_icon, p_text
 
 				if is_alerted then

@@ -12,6 +12,7 @@ local U = DI.Units
 local TP = DI.TargetPolicy
 local SO = D.SyncOverlay
 local Fallback = D.Fallback
+local C = DI.ClientStealth
 
 D._client_peer_susp = D._client_peer_susp or {}
 D._client_obs_status = D._client_obs_status or {}
@@ -67,9 +68,8 @@ local function _install_handlers()
 	DI.Logger.info("client net handlers installed")
 end
 
-local function _emit_alert(R, observer, kind, now_t, pu, target_allowed)
+local function _emit_alert(R, observer, kind, pu, target_allowed)
 	local p, phase = 1.0, DI.Phase.ALERTED
-	R.note_observer_alerted(observer, now_t)
 	R.put(observer, p, kind, phase)
 	if kind ~= "cam" then
 		return
@@ -94,7 +94,7 @@ function D.collect_client(cfg, t)
 	local susp = g and g._suspicion_hud_data
 	if type(susp) ~= "table" then
 		DI.Logger.once("debug", "client:no-suspicion-hud-data", "client suspicion HUD data unavailable")
-		return
+		susp = {}
 	end
 
 	local now_t = t or G.now()
@@ -109,6 +109,7 @@ function D.collect_client(cfg, t)
 	end
 
 	local pu = G.player_unit()
+	C.refresh(true)
 	local sync_active = SO.has_data(cfg)
 
 	if D._client_sync_active ~= nil and D._client_sync_active ~= sync_active then
@@ -139,7 +140,7 @@ function D.collect_client(cfg, t)
 		if alive(u) and not U.is_camera(u) then
 			local status = D._client_obs_status[u:key()]
 			if _cam_is_alert(status) then
-				_emit_alert(R, u, "npc", now_t, pu, target_allowed)
+				_emit_alert(R, u, "npc", pu, target_allowed)
 			elseif not sync_active then
 				Fallback.tick_npc(R, u, cfg, fctx)
 			end
@@ -176,7 +177,7 @@ function D.collect_client(cfg, t)
 				local alert = _cam_is_alert(status)
 				if (alert or not sync_active) and camu.base and camu:base() then
 					if alert then
-						_emit_alert(R, camu, "cam", now_t, pu, target_allowed)
+						_emit_alert(R, camu, "cam", pu, target_allowed)
 					else
 						Fallback.tick_cam(R, camu, cam_key, cfg, fctx, target_allowed, single_cam_only, pu)
 					end
@@ -187,13 +188,9 @@ function D.collect_client(cfg, t)
 
 	-- Sync overlay: apply host snapshot progress on top of alert records.
 	if sync_active then
-		local sync_target_allowed = TP.make_allowed(cfg, {
-			player_unit = pu,
-			include_enemy_lookup = true,
-			include_civilian_lookup = true,
-			groupai_state = G.groupai(),
-			require_npc_targetable = false,
-		})
-		SO.apply(R, cfg, now_t, pu, sync_target_allowed)
+		SO.apply(R, cfg, now_t, pu, target_allowed)
 	end
+
+	C.apply_local(R, cfg, pu, now_t)
+	C.apply_world(R, pu, target_allowed)
 end

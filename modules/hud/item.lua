@@ -75,7 +75,7 @@ local function _adjust_sy(base_sy, rec_kind, role, sy_offset_hint, off, m_edge, 
 end
 
 local function _alpha_for_distance(dist)
-	return math.clamp(1 - (dist - 800) / 4000, 0.25, 1)
+	return math.clamp(1 - (dist - 800) / 4000, 0.75, 1)
 end
 
 local function _should_show(off, layout, has_wo_overlay)
@@ -337,11 +337,12 @@ function H.place_records(records, roles, allowed, cfg, cam)
 				sy = _adjust_sy(sy, rec.kind, roles[unit:key()], sy_offset, off, view.m_edge, view.pnl_h)
 
 				local has_wo  = _wo_has_overlay_for(unit)
+				item._had_waypoint = item._had_waypoint or has_wo
 				local visible = _should_show(off, layout, has_wo)
 				if not visible then
 					item.panel:set_visible(false)
 				else
-					local hide_wo = _hide_for_waypoint_overlay(rec, layout, has_wo, cfg)
+					local hide_wo = _hide_for_waypoint_overlay(rec, layout, item._had_waypoint, cfg)
 					local paint   = _decide_paint(rec, layout, kind_icon_visible, cfg, hide_wo)
 					local pct, fill_color, text_color
 					if rec._target_alert then

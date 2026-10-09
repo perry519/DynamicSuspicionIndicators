@@ -10,6 +10,7 @@ local G = DI.Game
 local alive = G.alive
 local U = DI.Units
 local TP = DI.TargetPolicy
+local C = DI.ClientStealth
 
 local first_logged = false
 local function _log_first_fields(entry)
@@ -27,6 +28,7 @@ end
 function D.collect(cfg)
 	local R = DI.Records
 	R.clear()
+	C.reset()
 
 	local enemies = G.enemies()
 	local civilians = G.civilians()
@@ -37,35 +39,34 @@ function D.collect(cfg)
 	if not alive(pu) then
 		return
 	end
-	local pkey = pu:key()
 	local groupai_state = G.groupai()
-	local in_casing = G.current_state() == "mask_off"
+	C.refresh(false)
 
-	local npc_units = {}
 	local target_allowed = TP.make_allowed(cfg, {
 		player_unit = pu,
-		npc_units = npc_units,
+		include_enemy_lookup = true,
+		include_civilian_lookup = true,
 		groupai_state = groupai_state,
 	})
 
-	local function process_entry(att_key, entry, owner, owner_kind, t, fallback_p)
-		local au = entry.unit
-		local is_player_target = (att_key == pkey)
-			or (alive(au) and au == pu)
-			or (alive(au) and U.is_other_player(au, pu))
-		local target_in_casing = false
-		if in_casing and is_player_target and alive(au) then
-			local mov = au.movement and au:movement()
-			local state = mov and (mov._current_state_name or mov._state)
-			target_in_casing = state == "mask_off"
+	local function process_entry(entry, owner, owner_kind, t, fallback_p)
+		if not DI.Phase.is_suspicious(entry) then
+			return
 		end
-		local phase, p = DI.Phase.classify(entry, target_in_casing, false, t)
+		local au = entry.unit
+		if C.has_pair(owner, au) then
+			return
+		end
+		local phase, p = DI.Phase.classify(entry, true, false, t)
 		if not phase and type(fallback_p) == "number" and fallback_p > 0.01 then
 			phase = DI.Phase.UNCOVER
 			p = math.clamp(fallback_p, 0, 1)
 		end
 		if not (phase and type(p) == "number") then
 			return
+		end
+		if phase == DI.Phase.SUSPICION and not U.is_player_mask_off(au, pu) then
+			phase = DI.Phase.UNCOVER
 		end
 		if phase == DI.Phase.SUSPICION then
 			if not cfg.show_early_unmasked_suspicion then
@@ -76,7 +77,7 @@ function D.collect(cfg)
 			end
 		end
 		_log_first_fields(entry)
-		R.put(owner, p, owner_kind, phase)
+		R.put(owner, p, owner_kind, phase, nil, au)
 		if alive(au) and au ~= pu and target_allowed(au) then
 			R.put(au, p, "obj", phase, owner)
 		end
@@ -86,22 +87,19 @@ function D.collect(cfg)
 		if not alive(npc) or not npc.brain then
 			return
 		end
-		if U.alerted(npc) then
-			R.note_observer_alerted(npc, G.now())
-		end
-		if U.disabled(npc) then
-			return
-		end
 		local brain = npc:brain()
 		if not brain or not brain._logic_data then
 			return
 		end
 		local ld = brain._logic_data
-		if type(ld.detected_attention_objects) ~= "table" then
+		if type(ld.detected_attention_objects) ~= "table" or next(ld.detected_attention_objects) == nil then
 			return
 		end
-		for k, e in pairs(ld.detected_attention_objects) do
-			process_entry(k, e, npc, "npc", ld.t)
+		if U.disabled(npc) then
+			return
+		end
+		for _, e in pairs(ld.detected_attention_objects) do
+			process_entry(e, npc, "npc", ld.t)
 		end
 	end
 
@@ -110,12 +108,12 @@ function D.collect(cfg)
 			return
 		end
 		local b = camu:base()
-		local d = b._detected_attention_objects or b._attention_objects
+		local d = C.camera_detection_entries(b)
 		if type(d) ~= "table" then
 			return
 		end
-		for k, e in pairs(d) do
-			process_entry(k, e, camu, "cam", 0, b._suspicion)
+		for _, e in pairs(d) do
+			process_entry(e, camu, "cam", 0, b._suspicion)
 		end
 	end
 
@@ -127,19 +125,6 @@ function D.collect(cfg)
 		end
 	end
 
-	local mark_npc = function(u)
-		npc_units[u:key()] = true
-	end
-	if enemies then
-		gather(function()
-			return enemies
-		end, mark_npc)
-	end
-	if civilians then
-		gather(function()
-			return civilians
-		end, mark_npc)
-	end
 	if enemies then
 		gather(function()
 			return enemies
@@ -154,4 +139,5 @@ function D.collect(cfg)
 	for _, camu in pairs(G.security_cameras()) do
 		probe_cam(camu)
 	end
+	C.apply_world(R, pu, target_allowed)
 end

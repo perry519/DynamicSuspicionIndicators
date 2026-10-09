@@ -16,15 +16,13 @@ R._smooth_phase = R._smooth_phase or {}
 R._alert_flash = R._alert_flash or {}
 R._target_alerts = R._target_alerts or {}
 R._target_peaks = R._target_peaks or {}
-R._observer_alerts = R._observer_alerts or {}
 R._prev = R._prev or {}
 
 local FLASH_HOLD_SEC = 1.0
 local TARGET_ALERT_HOLD_SEC = 3.0
 local TARGET_PEAK_STALE_SEC = 1.0
-local OBSERVER_ALERT_STALE_SEC = 1.0
-local TARGET_ALERT_PROMOTE_P = 0.90
 local FLASH_PROMOTE_P = 0.6
+local put_observers = {}
 
 local function _key(unit, kind)
 	if kind == "obj" then
@@ -37,30 +35,13 @@ local function _observer_can_hold_target_alert(observer)
 	return alive(observer) and not U.pacified(observer)
 end
 
-local function _observer_alerted_recently(observer, now_t)
-	if U.alerted(observer) then
-		return true
-	end
-	if not (alive(observer) and observer.key) then
-		return false
-	end
-	local t = R._observer_alerts[observer:key()]
-	return type(t) == "number" and now_t - t <= OBSERVER_ALERT_STALE_SEC
-end
-
 local function _target_marker_expired(marker, now_t, max_age)
 	return now_t - marker.t > max_age or not alive(marker.unit) or not _observer_can_hold_target_alert(marker.observer)
 end
 
 function R.clear()
 	R.records = {}
-end
-
-function R.note_observer_alerted(observer, now_t)
-	if not (alive(observer) and observer.key) then
-		return
-	end
-	R._observer_alerts[observer:key()] = now_t or G.now()
+	put_observers = {}
 end
 
 local function _mark_target_alert(target, observer, now_t)
@@ -75,20 +56,38 @@ local function _mark_target_alert(target, observer, now_t)
 	}
 end
 
-function R.put(unit, progress, kind, phase, source_observer)
+function R.put(unit, progress, kind, phase, source_observer, detected_target)
 	if not unit then
 		return
 	end
 	local k = _key(unit, kind)
 	if kind == "obj" and type(progress) == "number" and progress > 0.01 then
 		R._target_alerts[k] = nil
-		if _observer_can_hold_target_alert(source_observer) then
-			R._target_peaks[k] = {
-				unit = unit,
-				observer = source_observer,
-				armed = progress >= TARGET_ALERT_PROMOTE_P,
-				t = G.now(),
-			}
+		local source_active = false
+		if alive(source_observer) then
+			source_active = put_observers[source_observer]
+			if source_active == nil then
+				source_active = not U.pacified(source_observer)
+				put_observers[source_observer] = source_active
+			end
+		end
+		if source_active then
+			local peak = R._target_peaks[k] or {}
+			peak.unit = unit
+			peak.observer = source_observer
+			peak.armed = phase == DI.Phase.ALERTED and progress >= 1
+			peak.t = G.now()
+			R._target_peaks[k] = peak
+		end
+	end
+
+	local target = detected_target or (kind == "obj" and unit)
+	if type(progress) == "number" and phase == DI.Phase.UNCOVER and target and alive(target) and target.base then
+		local base = target:base()
+		local settings = base and base.suspicion_settings and base:suspicion_settings()
+		local offset = settings and settings.hud_offset
+		if type(offset) == "number" then
+			progress = math.clamp(progress, 0, 1) * (1 - offset) + offset
 		end
 	end
 	local cur = R.records[k]
@@ -127,15 +126,9 @@ function R.tick(now_t, dt, cfg)
 	for k, f in pairs(R._target_peaks) do
 		if _target_marker_expired(f, now_t, TARGET_PEAK_STALE_SEC) then
 			R._target_peaks[k] = nil
-		elseif not R.records[k] and (f.armed or _observer_alerted_recently(f.observer, now_t)) then
+		elseif not R.records[k] and f.armed then
 			_mark_target_alert(f.unit, f.observer, now_t)
 			R._target_peaks[k] = nil
-		end
-	end
-
-	for key, t in pairs(R._observer_alerts) do
-		if now_t - t > OBSERVER_ALERT_STALE_SEC then
-			R._observer_alerts[key] = nil
 		end
 	end
 

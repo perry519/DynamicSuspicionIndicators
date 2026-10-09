@@ -186,12 +186,20 @@ function R.apply(ov, state, cfg, kind_textures)
 		ov._subdued_mode = nil
 		_set_kind(ov, ov.kind or "civilian", kind_textures)
 	end
+	if state.kind == "hidden" then
+		_show_overlay(ov, false)
+		_show_vanilla_fill(ov, false)
+		_hide_subdued_text(ov)
+		if alive(ov.vanilla_bitmap) then ov.vanilla_bitmap:set_alpha(0) end
+		if alive(ov.vanilla_arrow) then ov.vanilla_arrow:set_alpha(0) end
+		return
+	end
 	if state.kind == "calling" then
 		_apply_calling_mode(ov)
 		return
 	end
 	if state.kind == "subdued" then
-		if cfg.subdued_check_icon then
+		if ov.kind == "civilian" and cfg.subdued_check_icon then
 			_apply_subdued_vhp_mode(ov)
 		else
 			_apply_subdued_alert_mode(ov, kind_textures)

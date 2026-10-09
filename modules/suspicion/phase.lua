@@ -11,8 +11,17 @@ P.SUSPICION = "suspicion"
 P.UNCOVER = "uncover"
 P.ALERTED = "alerted"
 
+function P.is_suspicious(entry)
+	local reaction = entry.reaction or (entry.settings and entry.settings.reaction)
+	return type(reaction) ~= "number"
+		or reaction >= (_G.AIAttentionObject and _G.AIAttentionObject.REACT_SUSPICIOUS or 4)
+end
+
 function P.classify(entry, allow_suspicion, alerted, data_t)
 	if type(entry) ~= "table" then
+		return nil, nil
+	end
+	if not P.is_suspicious(entry) then
 		return nil, nil
 	end
 

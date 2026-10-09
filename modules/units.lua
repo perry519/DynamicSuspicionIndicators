@@ -95,12 +95,25 @@ end
 
 local SUBDUED_ANIM_FLAGS = { "drop", "surrender", "tied", "hands_back", "hands_tied", "bleedout", "fatal" }
 
-local function _has_subdued_anim(u)
-	if not (alive(u) and u.anim_data) then return false end
+local function _is_subdued(u)
+	if not alive(u) then
+		return false
+	end
+	local brain = u.brain and u:brain()
+	if brain and brain.is_tied and brain:is_tied() then
+		return true
+	end
+	if not u.anim_data then
+		return false
+	end
 	local a = u:anim_data()
-	if not a then return false end
+	if not a then
+		return false
+	end
 	for _, k in ipairs(SUBDUED_ANIM_FLAGS) do
-		if a[k] then return true end
+		if a[k] then
+			return true
+		end
 	end
 	return false
 end
@@ -120,7 +133,7 @@ end
 
 function U.pacified(u)
 	if U.is_dead(u) then return true end
-	if _has_subdued_anim(u) then return true end
+	if _is_subdued(u) then return true end
 	if _is_groupai_hostage(u, G.groupai()) then return true end
 	local b = u.brain and u:brain()
 	if b and b._logic_data then
@@ -149,12 +162,12 @@ end
 
 function U.is_subdued(unit, sd)
 	if sd and sd._subdued_civ then return true end
-	return _has_subdued_anim(unit)
+	return _is_subdued(unit)
 end
 
 function U.targetable(u, groupai_state)
 	if U.is_dead(u) then return true end
-	if _has_subdued_anim(u) then return true end
+	if _is_subdued(u) then return true end
 	if _is_groupai_hostage(u, groupai_state) then return true end
 	local b = u.brain and u:brain()
 	if b and b._logic_data then
@@ -223,11 +236,18 @@ local BODY_TERMS = {
 }
 
 function U.is_other_player(u, player_unit)
-	if not alive(u) or u == player_unit then return false end
+	if not alive(u) or u == player_unit then
+		return false
+	end
 	local base = _safe_base(u)
-	if not base then return false end
+	if not base then
+		return false
+	end
 	if _safe_method_bool(base, "is_husk_player") or _safe_method_bool(base, "is_local_player") then
 		return true
+	end
+	if G.is_enemy(u) or G.is_civilian(u) then
+		return false
 	end
 	local tokens = _unit_tokens(u)
 	return tokens:find("husk_player", 1, true) ~= nil or tokens:find("local_player", 1, true) ~= nil

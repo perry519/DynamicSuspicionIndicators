@@ -11,6 +11,7 @@ DI.Detection.SyncOverlay = SO
 local G = DI.Game
 local alive = G.alive
 local U = DI.Units
+local C = DI.ClientStealth
 
 function SO.has_data(cfg)
 	return cfg.enable_detection_sync ~= false and DI.Sync and DI.Sync.has_data and DI.Sync.has_data()
@@ -47,8 +48,17 @@ function SO.apply(R, cfg, now_t, pu, target_allowed)
 			return
 		end
 		local target = resolve(target_id)
+		if C.excludes_owned_world and C.excludes_owned_world(target) then
+			return
+		end
+		if C.has_pair(observer, target, target_id) then
+			return
+		end
 		local kind = cameras[observer] and "cam" or "npc"
 		local phase = sync_phase or DI.Phase.UNCOVER
+		if C.excludes_synced(key, target_id, phase) then
+			return
+		end
 		local observer_cleared = D._client_obs_status[key] == 0 and phase ~= DI.Phase.SUSPICION
 		if phase == DI.Phase.SUSPICION then
 			if not cfg.show_early_unmasked_suspicion then
@@ -59,7 +69,7 @@ function SO.apply(R, cfg, now_t, pu, target_allowed)
 			end
 		end
 		if not observer_cleared then
-			R.put(observer, p, kind, phase)
+			R.put(observer, p, kind, phase, nil, target)
 		end
 		if alive(target) and target ~= observer and target ~= pu then
 			local allowed = allowed_targets[target]

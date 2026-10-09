@@ -9,6 +9,7 @@ DI.Sync = DI.Sync or {}
 local S = DI.Sync
 local G = DI.Game
 local alive = G.alive
+local C = DI.ClientStealth
 local Codec = S.Codec
 local Transport = S.Transport
 
@@ -91,7 +92,16 @@ local function _phase_for_entry_target(entry, target)
 	return DI.Phase.UNCOVER, nil
 end
 
-local function _add_observer(snap, observer, attention_objs, fallback_progress)
+local function _observer_only_target(ctx, target)
+	local only = ctx.observer_only[target]
+	if only == nil then
+		only = (G.is_enemy(target) or G.is_civilian(target)) and not DI.Units.targetable(target, ctx.groupai)
+		ctx.observer_only[target] = not not only
+	end
+	return only
+end
+
+local function _add_observer(ctx, observer, attention_objs, fallback_progress, check_disabled)
 	if not (alive(observer) and observer.id) then
 		return
 	end
@@ -102,38 +112,56 @@ local function _add_observer(snap, observer, attention_objs, fallback_progress)
 	if type(attention_objs) ~= "table" then
 		return
 	end
+	local snap, best, best_key = ctx.snap, nil, nil
 	for _, e in pairs(attention_objs) do
 		local target = e.unit
 		local phase, p = _phase_for_entry_target(e, target)
 		if type(p) ~= "number" and type(fallback_progress) == "number" then
 			p = fallback_progress
 		end
-		if type(p) == "number" and p >= Codec.PROGRESS_FLOOR then
+		if type(p) == "number" and p >= Codec.PROGRESS_FLOOR and DI.Phase.is_suspicious(e) then
+			if check_disabled then
+				if DI.Units.disabled(observer) then
+					return
+				end
+				check_disabled = false
+			end
 			if alive(target) and target.id then
 				local tid = target:id()
-				if tid and tid ~= -1 then
-					local q = math.clamp(math.floor(p * 254 + 0.5), 0, 254)
-					snap[oid .. ":" .. tid] = { q = q, phase = phase }
+				if tid and tid ~= -1 and not (phase == DI.Phase.SUSPICION and G.is_civilian(observer)) then
+					local key = oid .. ":" .. tid
+					local rec = { q = math.clamp(math.floor(p * 254 + 0.5), 0, 254), phase = phase }
+					if not _observer_only_target(ctx, target) then
+						snap[key] = rec
+					elseif
+						not best
+						or rec.q > best.q
+						or (rec.q == best.q and S._last_sent[key] and not S._last_sent[best_key])
+					then
+						best, best_key = rec, key
+					end
 				end
 			end
 		end
 	end
+	if best then
+		snap[best_key] = best
+	end
 end
 
 local function _build_snapshot()
-	local snap = {}
+	local ctx = { snap = {}, observer_only = {}, groupai = G.groupai() }
 	local function probe_npc(u)
 		if not alive(u) then
 			return
 		end
-		if DI.Units.disabled(u) then
-			return
-		end
 		local b = u.brain and u:brain()
 		local ld = b and b._logic_data
-		if ld and type(ld.detected_attention_objects) == "table" then
-			_add_observer(snap, u, ld.detected_attention_objects)
+		local entries = ld and ld.detected_attention_objects
+		if type(entries) ~= "table" or next(entries) == nil then
+			return
 		end
+		_add_observer(ctx, u, entries, nil, true)
 	end
 	for _, e in pairs(G.enemies() or {}) do
 		probe_npc(e.unit)
@@ -144,13 +172,24 @@ local function _build_snapshot()
 	for _, cu in pairs(G.security_cameras()) do
 		if alive(cu) and cu.base and cu:base() then
 			local b = cu:base()
-			local d = b._detected_attention_objects or b._attention_objects
+			local d = C.camera_detection_entries(b)
 			if type(d) == "table" then
-				_add_observer(snap, cu, d, b._suspicion)
+				_add_observer(ctx, cu, d, b._suspicion)
 			end
 		end
 	end
-	return snap
+
+	C.each_world_pair(function(observer, target, phase, value)
+		local oid, tid = observer:id(), target:id()
+		if oid ~= -1 and tid ~= -1 then
+			ctx.snap[oid .. ":" .. tid] = phase == DI.Phase.UNCOVER
+					and value
+					and value >= Codec.PROGRESS_FLOOR
+					and { q = math.clamp(math.floor(value * 254 + 0.5), 0, 254), phase = phase }
+				or nil
+		end
+	end)
+	return ctx.snap
 end
 
 function S.host_flush(t)

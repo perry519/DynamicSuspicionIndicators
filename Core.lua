@@ -15,7 +15,6 @@ DI._log = function(msg)
 	DI.Logger.dbg(msg)
 end
 
--- Load modules. Order matters: leaves first, dependants last.
 dofile(DI.mod_path .. "modules/infra/logger.lua")
 dofile(DI.mod_path .. "modules/settings/schema.lua")
 dofile(DI.mod_path .. "modules/infra/color.lua")
@@ -27,6 +26,7 @@ dofile(DI.mod_path .. "modules/suspicion/phase.lua")
 dofile(DI.mod_path .. "modules/policy/target.lua")
 dofile(DI.mod_path .. "modules/suspicion/records.lua")
 dofile(DI.mod_path .. "modules/units/index.lua")
+dofile(DI.mod_path .. "modules/integrations/clientside_stealth.lua")
 dofile(DI.mod_path .. "modules/sync/codec.lua")
 dofile(DI.mod_path .. "modules/sync/transport.lua")
 dofile(DI.mod_path .. "modules/sync.lua")
@@ -90,7 +90,12 @@ function DI:_update(t, dt)
 	local G = DI.Game
 	local R = DI.Records
 	local cfg = _settings()
-	local wo_deps = { npc_kind = DI.Units.npc_kind, records = R.records, cfg = cfg }
+	local wo_deps = {
+		npc_kind = DI.Units.npc_kind,
+		records = R.records,
+		cfg = cfg,
+		hide_idle_observer = DI.ClientStealth.hides_unrecorded,
+	}
 
 	if DI.demo_mode then
 		self._last_host_collect_t = nil
@@ -136,6 +141,7 @@ function DI:_update(t, dt)
 end
 
 local function _reset_client_state()
+	DI.ClientStealth.reset()
 	local D = DI.Detection
 	if D then
 		D._client_peer_susp = {}
@@ -150,7 +156,6 @@ local function _reset_client_state()
 	DI.Records._alert_flash = {}
 	DI.Records._target_alerts = {}
 	DI.Records._target_peaks = {}
-	DI.Records._observer_alerts = {}
 	DI.Records._prev = {}
 	DI.Records._smooth = {}
 	DI.Records._smooth_phase = {}

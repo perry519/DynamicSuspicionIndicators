@@ -12,8 +12,8 @@ local D = DI.Detection
 local G = DI.Game
 local alive = G.alive
 local U = DI.Units
+local C = DI.ClientStealth
 
--- Fallback-only state. Shared D namespace so Core._reset_client_state can clear.
 D._los_cache = D._los_cache or {}
 D._camera_susp_seq = D._camera_susp_seq or 0
 D._camera_susp_seen = D._camera_susp_seen or {}
@@ -22,10 +22,6 @@ D._cam_lvl_prev = D._cam_lvl_prev or {}
 
 local LOS_TTL = 0.2
 local MAX_RADIUS_SQ = 3000 * 3000
-
-------------------------------------------------------------
--- Install
-------------------------------------------------------------
 
 function Fallback.install_camera_event_patch()
 	G.patch_security_camera_sync_net_event("_dsi_sne_orig", function(self, event_id, orig, ...)
@@ -40,8 +36,6 @@ function Fallback.install_camera_event_patch()
 	end)
 end
 
--- Called when sync transitions active → inactive. Prevents stale susp_seen counts
--- from this cam being treated as fresh detection events.
 function Fallback.on_mode_switch_to_fallback()
 	D._camera_fb_min_seq = D._camera_susp_seq or 0
 end
@@ -101,21 +95,25 @@ local function _make_obs_susp(cfg, player_susp_data, now_t)
 		local mov = obs_unit.movement and obs_unit:movement()
 		local obs_pos = (mov and mov:m_pos()) or obs_unit:position()
 		local ox, oy, oz = obs_pos.x, obs_pos.y, obs_pos.z
+		local excluded = C.excluded_peer(obs_unit:key())
 
-		local best_sq, best_sv, count = math.huge, nil, 0
-		for _, pd in pairs(player_susp_data) do
-			local dx = pd.px - ox
-			local dy = pd.py - oy
-			local dz = pd.pz - oz
-			local dsq = dx * dx + dy * dy + dz * dz
-			count = count + 1
-			if dsq < best_sq then
-				best_sq = dsq
-				best_sv = pd.susp
+		local best_sq, best_sv, best_target, count = math.huge, nil, nil, 0
+		for pid, pd in pairs(player_susp_data) do
+			if pid ~= excluded then
+				local dx = pd.px - ox
+				local dy = pd.py - oy
+				local dz = pd.pz - oz
+				local dsq = dx * dx + dy * dy + dz * dz
+				count = count + 1
+				if dsq < best_sq then
+					best_sq = dsq
+					best_sv = pd.susp
+					best_target = pd.unit
+				end
 			end
 		end
 		if count == 1 then
-			return best_sv
+			return best_sv, best_target
 		end
 
 		local obs_key = obs_unit:key()
@@ -124,13 +122,13 @@ local function _make_obs_susp(cfg, player_susp_data, now_t)
 			oc = {}
 			D._los_cache[obs_key] = oc
 		end
-		local los_sq, los_sv = math.huge, nil
+		local los_sq, los_sv, los_target = math.huge, nil, nil
 		for pid, pd in pairs(player_susp_data) do
 			local dx = pd.px - ox
 			local dy = pd.py - oy
 			local dz = pd.pz - oz
 			local dsq = dx * dx + dy * dy + dz * dz
-			if dsq <= MAX_RADIUS_SQ then
+			if pid ~= excluded and dsq <= MAX_RADIUS_SQ then
 				local c = oc[pid]
 				local has_los
 				if c and (now_t - c.t) < LOS_TTL then
@@ -142,11 +140,12 @@ local function _make_obs_susp(cfg, player_susp_data, now_t)
 				if has_los and dsq < los_sq then
 					los_sq = dsq
 					los_sv = pd.susp
+					los_target = pd.unit
 				end
 			end
 		end
 
-		return los_sv or best_sv
+		return los_sv or best_sv, los_target or best_target
 	end
 end
 
@@ -219,11 +218,11 @@ function Fallback.emit_player_records(R, cfg, pu, ctx, target_allowed)
 end
 
 function Fallback.tick_npc(R, observer_unit, cfg, ctx)
-	local p = ctx.obs_susp(observer_unit)
+	local p, target = ctx.obs_susp(observer_unit)
 	if not p or p <= 0.01 then
 		return
 	end
-	R.put(observer_unit, p, "npc", DI.Phase.UNCOVER)
+	R.put(observer_unit, p, "npc", DI.Phase.UNCOVER, nil, target)
 end
 
 function Fallback.tick_cam(R, camu, cam_key, cfg, ctx, target_allowed, single_cam_only, pu)
@@ -247,17 +246,27 @@ function Fallback.tick_cam(R, camu, cam_key, cfg, ctx, target_allowed, single_ca
 		return
 	end
 
-	local p = _cam_progress_from_level(lvl, ctx.obs_susp(camu), single_cam_only)
+	local m = camu.movement and camu:movement()
+	local att = m and m.attention and m:attention()
+	local target = att and att.unit
+	if C.has_pair(camu, target) then
+		return
+	end
+	local other_target = alive(target) and target ~= camu and target ~= pu and target_allowed(target)
+	local observed, observed_target = ctx.obs_susp(camu)
+	local owned = C.has_local_observer(cam_key)
+	-- Camera audio has no target ID; a delayed bucket alone cannot override local detection.
+	if owned and not observed and not other_target then
+		return
+	end
+	local p = _cam_progress_from_level(lvl, observed, single_cam_only)
 	if not p or p <= 0.01 then
 		return
 	end
 	local phase = DI.Phase.UNCOVER
 
-	R.put(camu, p, "cam", phase)
-	local m = camu.movement and camu:movement()
-	local att = m and m.attention and m:attention()
-	local target = att and att.unit
-	if alive(target) and target ~= camu and target ~= pu and target_allowed(target) then
+	R.put(camu, p, "cam", phase, nil, observed_target or target)
+	if other_target then
 		if not (U.is_other_player(target, pu) and phase ~= DI.Phase.ALERTED) then
 			R.put(target, p, "obj", phase, camu)
 		end
