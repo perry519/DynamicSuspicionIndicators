@@ -19,7 +19,8 @@ R._target_peaks = R._target_peaks or {}
 R._prev = R._prev or {}
 
 local FLASH_HOLD_SEC = 1.0
-local TARGET_ALERT_HOLD_SEC = 3.0
+R.TARGET_ALERT_HOLD_SEC = 3.0
+local TARGET_ALERT_HOLD_SEC = R.TARGET_ALERT_HOLD_SEC
 local TARGET_PEAK_STALE_SEC = 1.0
 local FLASH_PROMOTE_P = 0.6
 local put_observers = {}

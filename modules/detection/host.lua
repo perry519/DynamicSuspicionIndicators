@@ -139,5 +139,5 @@ function D.collect(cfg)
 	for _, camu in pairs(G.security_cameras()) do
 		probe_cam(camu)
 	end
-	C.apply_world(R, pu, target_allowed)
+	C.apply_world(R, pu, target_allowed, cfg)
 end

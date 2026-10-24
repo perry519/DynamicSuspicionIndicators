@@ -15,6 +15,7 @@ local Fallback = D.Fallback
 local C = DI.ClientStealth
 
 D._client_peer_susp = D._client_peer_susp or {}
+D._client_peer_spotted = D._client_peer_spotted or {}
 D._client_obs_status = D._client_obs_status or {}
 D._client_handlers_in = D._client_handlers_in or false
 D._client_dump_t = D._client_dump_t or 0
@@ -45,7 +46,10 @@ local function _install_handlers()
 		"_dsi_susp_orig",
 		function(self, orig, suspect_peer_id, susp_value, sender)
 			if type(suspect_peer_id) == "number" and type(susp_value) == "number" then
-				D._client_peer_susp[suspect_peer_id] = math.clamp(susp_value / 254, 0, 1)
+				-- 255 = spotted; vanilla never resets it during stealth, so it is not progress.
+				local spotted = susp_value >= 255
+				D._client_peer_susp[suspect_peer_id] = not spotted and math.clamp(susp_value / 254, 0, 1) or nil
+				D._client_peer_spotted[suspect_peer_id] = spotted and G.now() or nil
 			end
 			return orig(self, suspect_peer_id, susp_value, sender)
 		end
@@ -118,6 +122,7 @@ function D.collect_client(cfg, t)
 		if not sync_active then
 			Fallback.on_mode_switch_to_fallback()
 			D._client_peer_susp = {}
+			D._client_peer_spotted = {}
 		end
 	end
 	D._client_sync_active = sync_active
@@ -192,5 +197,5 @@ function D.collect_client(cfg, t)
 	end
 
 	C.apply_local(R, cfg, pu, now_t)
-	C.apply_world(R, pu, target_allowed)
+	C.apply_world(R, pu, target_allowed, cfg)
 end

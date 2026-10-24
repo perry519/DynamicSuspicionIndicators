@@ -215,6 +215,15 @@ function Fallback.emit_player_records(R, cfg, pu, ctx, target_allowed)
 			end
 		end
 	end
+	local sess = G.session()
+	local now_t = G.now()
+	for _, peer in pairs(sess and sess:peers() or {}) do
+		local t = D._client_peer_spotted[peer:id()]
+		local target = peer:unit()
+		if t and now_t - t <= R.TARGET_ALERT_HOLD_SEC and alive(target) and target ~= pu and target_allowed(target) then
+			R.put(target, 1, "obj", DI.Phase.ALERTED)
+		end
+	end
 end
 
 function Fallback.tick_npc(R, observer_unit, cfg, ctx)
