@@ -3,7 +3,7 @@
 	"description" : "Dynamic suspicion indicators for stealth.",
 	"author" : "Perry",
 	"contact": "https://github.com/perry519/DynamicSuspicionIndicators",
-	"version" : "2.0.0",
+	"version" : "2.0.1",
 	"blt_version" : 2,
 	"priority" : 0,
 	"updates" : [
