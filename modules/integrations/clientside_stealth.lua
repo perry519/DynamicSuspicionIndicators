@@ -118,6 +118,16 @@ function C.apply_local(R, cfg, pu, now_t)
 end
 
 local function phase_progress(observed, target_state)
+	if target_state.target_kind == "player" then
+		local casing = U.is_player_mask_off(target_state.unit, G.player_unit())
+		if observed.kind == "camera" and target_state.transition == "suspicion" then
+			return DI.Phase.UNCOVER, target_state.suspicion_progress
+		end
+		if observed.kind == "guard" and target_state.identified and target_state.uncover_progress == nil then
+			return nil, nil
+		end
+		return DI.Phase.classify(target_state, casing, target_state.alarmed)
+	end
 	if target_state.identified or target_state.alarmed then
 		return DI.Phase.ALERTED, 1
 	end
@@ -170,8 +180,14 @@ function C.each_world_pair(fn)
 	end
 end
 
-function C.apply_world(records, player, target_allowed)
+function C.apply_world(records, player, target_allowed, cfg)
 	C.each_world_pair(function(observer, target, phase, value, kind)
+		if
+			phase == DI.Phase.SUSPICION
+			and (not cfg.show_early_unmasked_suspicion or U.npc_kind(observer) == "civilian")
+		then
+			return
+		end
 		if value and value > 0.01 then
 			kind = kind == "camera" and "cam" or "npc"
 			records.put(observer, value, kind, phase, nil, target)
